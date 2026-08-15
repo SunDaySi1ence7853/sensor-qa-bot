@@ -1,5 +1,10 @@
 """
 系统提示词和知识库加载逻辑。
+
+本文件重点：
+1. 读取 knowledge 目录下的 .txt / .md 文档。
+2. 使用简单缓存，避免每次 build_system_prompt 都重新读磁盘。
+3. clear/reset 时可以强制刷新缓存。
 """
 
 from pathlib import Path
@@ -8,15 +13,72 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 KNOWLEDGE_DIR = PROJECT_ROOT / "knowledge"
 
+_knowledge_cache: str | None = None
+_knowledge_signature_cache: tuple | None = None
 
-def load_knowledge() -> str:
+
+def get_knowledge_signature() -> tuple:
     """
-    读取 knowledge 目录下所有 .txt / .md 文档。
+    获取知识库文件签名。
+
+    签名内容包括：
+    - 文件名
+    - 文件修改时间
+    - 文件大小
+
+    如果这些信息没变，就认为知识库没有变化。
     """
 
     if not KNOWLEDGE_DIR.exists():
+        return tuple()
+
+    files = sorted(
+        [
+            p
+            for p in KNOWLEDGE_DIR.iterdir()
+            if p.is_file() and p.suffix.lower() in [".txt", ".md"]
+        ]
+    )
+
+    signature = []
+
+    for file_path in files:
+        stat = file_path.stat()
+        signature.append(
+            (
+                file_path.name,
+                stat.st_mtime,
+                stat.st_size,
+            )
+        )
+
+    return tuple(signature)
+
+
+def load_knowledge(force_reload: bool = False) -> str:
+    """
+    读取 knowledge 目录下所有 .txt / .md 文档。
+
+    force_reload=True 时强制重新读取。
+    """
+
+    global _knowledge_cache
+    global _knowledge_signature_cache
+
+    if not KNOWLEDGE_DIR.exists():
         KNOWLEDGE_DIR.mkdir(parents=True, exist_ok=True)
+        _knowledge_cache = ""
+        _knowledge_signature_cache = tuple()
         return ""
+
+    current_signature = get_knowledge_signature()
+
+    if (
+        not force_reload
+        and _knowledge_cache is not None
+        and _knowledge_signature_cache == current_signature
+    ):
+        return _knowledge_cache
 
     docs = []
 
@@ -40,15 +102,18 @@ def load_knowledge() -> str:
         except Exception as e:
             print(f"警告：读取 {file_path.name} 失败：{e}")
 
-    return "\n".join(docs)
+    _knowledge_cache = "\n".join(docs)
+    _knowledge_signature_cache = current_signature
+
+    return _knowledge_cache
 
 
-def build_system_prompt() -> str:
+def build_system_prompt(force_reload: bool = False) -> str:
     """
     构建系统提示词。
     """
 
-    knowledge = load_knowledge()
+    knowledge = load_knowledge(force_reload=force_reload)
 
     if not knowledge:
         knowledge = "当前知识库为空。"
@@ -69,4 +134,4 @@ def build_system_prompt() -> str:
 
 【知识库内容】
 {knowledge}
-"""
+""".strip()
