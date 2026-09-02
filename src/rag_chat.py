@@ -117,10 +117,17 @@ class SensorRAGChat:
                 parts.append(text)
                 yield StreamEvent(delta=text, done=False)
 
+            # 从 chunk 中提取 token 使用量（LangChain 0.3+ 支持）。
+            # 降级方案：如果 usage_metadata 为 None（兼容接口不支持或 LangChain 版本过低），
+            # token 统计会显示 0，不影响对话功能，只是费用估算失效。
+            # 用户可通过 DeepSeek 控制台查看实际消耗。
+
             usage = getattr(chunk, "usage_metadata", None)
             if usage:
                 prompt_tokens = usage.get("input_tokens", prompt_tokens)
                 completion_tokens = usage.get("output_tokens", completion_tokens)
+
+           
 
         full_text = "".join(parts).strip()
         total_tokens = prompt_tokens + completion_tokens
