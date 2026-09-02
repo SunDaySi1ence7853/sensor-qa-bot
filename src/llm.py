@@ -18,6 +18,12 @@ def get_llm(streaming: bool = False) -> ChatOpenAI:
 
     DeepSeek 兼容 OpenAI 接口，所以用 ChatOpenAI + base_url 即可。
     streaming=True / False 各缓存一个实例。
+
+    stream_usage=True：
+        让 ChatOpenAI 在流式模式下也请求 usage（等价于底层
+        stream_options={"include_usage": True}），
+        这样最后一个 chunk 的 usage_metadata 才会被填充，
+        否则流式统计到的 token 会一直是 0。
     """
     require_api_key()
     cfg = get_config()
@@ -28,4 +34,5 @@ def get_llm(streaming: bool = False) -> ChatOpenAI:
         base_url=cfg.deepseek_base_url,
         temperature=0.2,
         streaming=streaming,
+        stream_usage=streaming,  # 仅流式时需要
     )

@@ -88,6 +88,14 @@ class SensorRAGChat:
         """
         统一核心：始终以流式方式跑，逐块 yield。
         非流式接口只是把它收集起来。
+
+        重要约定（关于失败回滚）：
+            history 的更新（append 用户与助手消息）必须放在流式循环
+            **全部结束、生成 done 事件之前**统一执行。
+            这样，无论是在 _retrieve() 还是 llm.stream() 中途抛异常，
+            history 都还没被改动，天然“失败不写入、无需回滚”。
+            ——今后维护者请勿在下面的 for 循环内部 append history，
+            否则中途失败会污染对话记忆。
         """
         context, sources = self._retrieve(question)
 
@@ -128,7 +136,8 @@ class SensorRAGChat:
             sources=sources,
         )
 
-        # 更新记忆（成对写入）
+        # 只有走到这里（流式全部成功）才更新记忆，成对写入。
+        # 中途任何异常都不会执行到这两行，因此记忆不会被污染。
         self.history.append(HumanMessage(content=question))
         self.history.append(AIMessage(content=full_text))
         self._trim_history()

@@ -2,6 +2,8 @@
 RAG 系统提示词。
 """
 
+from functools import lru_cache
+
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 SYSTEM_PROMPT = """你是“传感器问答助手 v0.2”，负责回答传感器技术问题。
@@ -20,7 +22,11 @@ SYSTEM_PROMPT = """你是“传感器问答助手 v0.2”，负责回答传感�
 """
 
 
+@lru_cache(maxsize=1)
 def build_rag_prompt() -> ChatPromptTemplate:
+    """
+    prompt 模板不变，加缓存避免每次实例化都重建。
+    """
     return ChatPromptTemplate.from_messages(
         [
             ("system", SYSTEM_PROMPT),

@@ -39,9 +39,15 @@ def _build_deepseek_embeddings() -> Embeddings:
     require_api_key()
     cfg = get_config()
 
+    # rstrip("/") 防止用户在 .env 里把 base_url 写成带 /v1 或带结尾斜杠，
+    # 拼成 https://.../v1/v1 这种错误地址。
+    base = cfg.deepseek_base_url.rstrip("/")
+    if not base.endswith("/v1"):
+        base = base + "/v1"
+
     return OpenAIEmbeddings(
         model=cfg.deepseek_embedding_model,
         api_key=cfg.deepseek_api_key,
-        base_url=cfg.deepseek_base_url + "/v1",
+        base_url=base,
         check_embedding_ctx_length=False,
     )

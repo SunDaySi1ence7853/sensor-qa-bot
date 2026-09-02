@@ -87,5 +87,9 @@ def load_vectorstore() -> FAISS:
     return FAISS.load_local(
         str(save_dir),
         embeddings,
+        # allow_dangerous_deserialization=True 会用 pickle 反序列化。
+        # 风险仅在于加载“别人给的、来源不明的”向量库文件。
+        # 这里加载的是本程序 build_index.py 亲自构建、保存在本地的文件，
+        # 来源可信、内容自控，因此开启是安全的。
         allow_dangerous_deserialization=True,
     )
