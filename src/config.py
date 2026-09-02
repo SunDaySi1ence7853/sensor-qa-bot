@@ -119,7 +119,7 @@ def get_config() -> Config:
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
         vectorstore_dir=os.getenv("VECTORSTORE_DIR", "vectorstore"),
-        memory_turns=_parse_int("MEMORY_TURNS", 6, min_val=1, max_val=100),
+        memory_turns=_parse_int("MEMORY_TURNS", 6, min_val=2, max_val=100),
     )
 
 
