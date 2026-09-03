@@ -66,4 +66,75 @@ def _load_documents():
         )
 
     if skipped:
-        logger.
+        logger.info("已加载 %d 个文件，跳过 %d 个", len(files) - len(skipped), len(skipped))
+    else:
+        logger.info("已加载全部 %d 个文件", len(files))
+
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=cfg.chunk_size,
+        chunk_overlap=cfg.chunk_overlap,
+        separators=["\n\n", "\n", "。", "！", "？", "；", " ", ""],
+    )
+
+    docs = splitter.split_documents(raw_docs)
+    logger.info("文档切分完成：%d chunks", len(docs))
+    logger.debug(
+        "切分参数 | chunk_size=%d | chunk_overlap=%d",
+        cfg.chunk_size,
+        cfg.chunk_overlap,
+    )
+
+    return docs
+
+
+def build_vectorstore() -> FAISS:
+    """
+    从 knowledge/ 目录构建向量库。
+    供 build_index.py 使用。
+    """
+    logger.info("开始构建向量库...")
+    docs = _load_documents()
+    embeddings = get_embeddings()
+
+    logger.info("正在生成 embeddings（首次运行或模型未缓存时可能较慢）...")
+    vectorstore = FAISS.from_documents(docs, embeddings)
+    logger.info("向量库构建完成")
+
+    return vectorstore
+
+
+def load_vectorstore() -> FAISS:
+    """
+    加载已保存的向量库。
+    供 main.py 使用。
+    """
+    cfg = get_config()
+    vectorstore_path = PROJECT_ROOT / cfg.vectorstore_dir
+
+    index_file = vectorstore_path / "index.faiss"
+    if not index_file.exists():
+        logger.error("向量库不存在：%s", vectorstore_path)
+        raise RuntimeError(
+            f"向量库不存在：{vectorstore_path}\n"
+            "请先运行：python build_index.py"
+        )
+
+    logger.info("正在加载向量库：%s", vectorstore_path)
+
+    embeddings = get_embeddings()
+
+    try:
+        vectorstore = FAISS.load_local(
+            str(vectorstore_path),
+            embeddings,
+            allow_dangerous_deserialization=True,
+        )
+        logger.info("向量库加载完成")
+        return vectorstore
+    except Exception as e:
+        logger.exception("向量库加载失败：%s", vectorstore_path)
+        raise RuntimeError(
+            f"向量库加载失败：{vectorstore_path}\n"
+            f"原因：{e}\n"
+            "建议重新构建：python build_index.py"
+        )

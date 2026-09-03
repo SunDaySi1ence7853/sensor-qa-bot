@@ -1,84 +1,86 @@
+#!/usr/bin/env python
 """
-传感器问答助手 v0.2（RAG 版）
-命令行入口。
+传感器知识库问答机器人（命令行交互版）。
 
-普通输出：python main.py
-流式输出：python main.py --stream
+运行：python main.py
+退出：输入 exit / quit / q
 """
 
-import argparse
+import sys
 
-from src.rag_chat import ChatResult, SensorRAGChat
-
-
-def print_banner(stream: bool) -> None:
-    print("=" * 50)
-    print("传感器问答助手 v0.2 (RAG)")
-    print("DeepSeek Chat + 本地向量检索")
-    print("=" * 50)
-    print("1. 直接输入传感器相关问题。")
-    print("2. clear 重置对话历史。")
-    print("3. exit 退出。")
-    print(f"4. 当前模式：{'流式输出' if stream else '普通输出'}")
-    print("=" * 50)
+from src.config import require_api_key
+from src.logging_config import setup_logging
+from src.rag_chat import SensorRAGChat
 
 
-def print_result_meta(result: ChatResult) -> None:
-    print("\n" + "-" * 50)
-    if result.sources:
-        print("参考资料：" + "、".join(result.sources))
-    print("本次消耗：")
-    print(f"  输入 tokens：{result.usage.prompt_tokens}")
-    print(f"  输出 tokens：{result.usage.completion_tokens}")
-    print(f"  总 tokens：{result.usage.total_tokens}")
-    print(f"  估算费用：约 {result.usage.estimated_cost_cny:.6f} 元")
-    print("-" * 50)
+def main():
+    import argparse
 
+    parser = argparse.ArgumentParser(description="传感器知识库问答机器人")
+    parser.add_argument("--debug", action="store_true", help="开启 DEBUG 日志")
+    args = parser.parse_args()
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="传感器问答助手 v0.2")
-    parser.add_argument(
-        "--stream", action="store_true", help="启用流式输出"
-    )
-    return parser.parse_args()
+    # 初始化日志（应用入口调用一次）
+    setup_logging(debug=args.debug)
 
+    print("=" * 60)
+    print("传感器知识库问答机器人 v0.3")
+    print("=" * 60)
+    print("提示：输入 'exit' / 'quit' / 'q' 退出，'reset' 清空历史\n")
 
-def main() -> None:
-    args = parse_args()
-    chat = SensorRAGChat()
-    print_banner(stream=args.stream)
+    try:
+        require_api_key()
+    except RuntimeError as e:
+        print(f"\n❌ {e}\n", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        chat = SensorRAGChat()
+    except Exception as e:
+        print(f"\n❌ 初始化失败：{e}\n", file=sys.stderr)
+        sys.exit(1)
 
     while True:
-        user_input = input("\n你：").strip()
+        try:
+            user_input = input("\n🤔 你的问题：").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n\n再见！")
+            break
+
         if not user_input:
             continue
-        if user_input.lower() == "exit":
-            print("助手：再见！")
+
+        if user_input.lower() in ("exit", "quit", "q"):
+            print("\n再见！")
             break
-        if user_input.lower() == "clear":
+
+        if user_input.lower() == "reset":
             chat.reset()
-            print("助手：对话历史已清空。")
+            print("✅ 对话历史已清空")
             continue
 
         try:
-            if args.stream:
-                print("助手：", end="", flush=True)
-                final = None
-                for event in chat.ask_stream(user_input):
-                    if not event.done:
-                        print(event.delta, end="", flush=True)
-                    else:
-                        final = event.result
-                print()
-                if final:
-                    print_result_meta(final)
-            else:
-                print("助手：正在检索并思考...")
-                result = chat.ask(user_input)
-                print(f"\n助手：{result.content}")
-                print_result_meta(result)
+            print("\n🤖 回答：", end="", flush=True)
+
+            for event in chat.ask_stream(user_input):
+                if not event.done:
+                    print(event.delta, end="", flush=True)
+                else:
+                    result = event.result
+                    print("\n")
+                    print(
+                        f"💰 本次消耗：{result.usage.total_tokens} tokens "
+                        f"（¥{result.usage.estimated_cost_cny:.6f}）"
+                    )
+                    if result.sources:
+                        print(f"📚 知识来源：{', '.join(result.sources)}")
+
+        except KeyboardInterrupt:
+            print("\n\n⚠️ 回答被中断")
+            continue
         except Exception as e:
-            print(f"\n助手：调用失败，错误信息：{e}")
+            print(f"\n\n❌ 错误：{e}\n", file=sys.stderr)
+            continue
 
 
 if __name__ == "__main__":

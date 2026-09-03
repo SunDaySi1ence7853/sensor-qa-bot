@@ -1,22 +1,23 @@
 """
-RAG 对话核心。
-
-设计要点：
-1. RAG：先检索知识库，把资料塞进 prompt。
-2. 记忆：维护 history，按 MEMORY_TURNS 截断，成对存储，天然无连续同角色。
-3. 流式与非流式共用同一套核心（DRY）：非流式 = 收集流式结果。
-4. token 统计与费用估算。
+RAG 问答核心逻辑。
 """
 
-from dataclasses import dataclass, field
-from typing import Generator, List, Optional
+from dataclasses import dataclass
+from typing import Generator
 
+from langchain_community.vectorstores import FAISS
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_openai import ChatOpenAI
 
 from src.config import get_config
 from src.llm import get_llm
-from src.prompt import build_rag_prompt
+from src.logging_config import get_logger
+from src.prompt import RAG_PROMPT_TEMPLATE
 from src.vectorstore import load_vectorstore
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -31,136 +32,158 @@ class TokenUsage:
 class ChatResult:
     content: str
     usage: TokenUsage
-    sources: List[str] = field(default_factory=list)
+    sources: list[str]
 
 
 @dataclass
 class StreamEvent:
     delta: str = ""
     done: bool = False
-    result: Optional[ChatResult] = None
-
-
-def _estimate_cost(prompt_tokens: int, completion_tokens: int) -> float:
-    cfg = get_config()
-    return (
-        prompt_tokens / 1_000_000 * cfg.input_price_per_1m
-        + completion_tokens / 1_000_000 * cfg.output_price_per_1m
-    )
+    result: ChatResult | None = None
 
 
 class SensorRAGChat:
     def __init__(self):
-        cfg = get_config()
-        self.top_k = cfg.retrieve_top_k
-        self.memory_turns = cfg.memory_turns
+        logger.debug("正在初始化 SensorRAGChat...")
+        self.cfg = get_config()
+        self.vectorstore: FAISS = load_vectorstore()
+        self.llm: ChatOpenAI = get_llm(streaming=False)
+        self.llm_stream: ChatOpenAI = get_llm(streaming=True)
+        self.history: list[BaseMessage] = []
 
-        self.vectorstore = load_vectorstore()
-        self.prompt = build_rag_prompt()
-        self.history: List[BaseMessage] = []
+        self.prompt = ChatPromptTemplate.from_template(RAG_PROMPT_TEMPLATE)
+        self.chain = self.prompt | self.llm | StrOutputParser()
 
-    def reset(self) -> None:
-        self.history = []
+        logger.info("SensorRAGChat 初始化完成 | memory_turns=%d", self.cfg.memory_turns)
 
-    def _retrieve(self, question: str):
-        docs = self.vectorstore.similarity_search(question, k=self.top_k)
-        context = "\n\n".join(
-            f"[资料{i + 1}] {d.page_content}" for i, d in enumerate(docs)
+    def ask(self, question: str) -> ChatResult:
+        logger.info("收到问题 | question=%r", question)
+
+        docs = self.vectorstore.similarity_search(
+            question, k=self.cfg.retrieve_top_k
         )
-        sources = [
-            d.metadata.get("source", "unknown").split("\\")[-1].split("/")[-1]
-            for d in docs
-        ]
-        return context, sources
+        logger.debug("检索到 %d 个文档片段", len(docs))
+        for i, doc in enumerate(docs, 1):
+            logger.debug(
+                "Chunk %d/%d | source=%s | content=%s",
+                i,
+                len(docs),
+                doc.metadata.get("source", "unknown"),
+                doc.page_content[:100],
+            )
 
-    def _trim_history(self) -> None:
-        """
-        history 里都是成对的 Human/AI 消息，
-        只保留最近 memory_turns 轮（一轮 = 1条Human + 1条AI）。
-        """
-        max_msgs = self.memory_turns * 2
-        if len(self.history) > max_msgs:
-            self.history = self.history[-max_msgs:]
+        context = "\n\n".join(d.page_content for d in docs)
+        sources = sorted(set(d.metadata.get("source", "") for d in docs))
 
-    def _core_stream(
-        self, question: str
-    ) -> Generator[StreamEvent, None, None]:
-        """
-        统一核心：始终以流式方式跑，逐块 yield。
-        非流式接口只是把它收集起来。
+        messages = self.history + [HumanMessage(content=question)]
 
-        重要约定（关于失败回滚）：
-            history 的更新（append 用户与助手消息）必须放在流式循环
-            **全部结束、生成 done 事件之前**统一执行。
-            这样，无论是在 _retrieve() 还是 llm.stream() 中途抛异常，
-            history 都还没被改动，天然“失败不写入、无需回滚”。
-            ——今后维护者请勿在下面的 for 循环内部 append history，
-            否则中途失败会污染对话记忆。
-        """
-        context, sources = self._retrieve(question)
+        logger.debug("开始调用 LLM | history_len=%d", len(self.history))
 
-        messages = self.prompt.format_messages(
-            context=context,
-            history=self.history,
-            question=question,
+        response = self.chain.invoke(
+            {"context": context, "question": question, "history": messages}
         )
 
-        llm = get_llm(streaming=True)
+        usage_meta = getattr(response, "usage_metadata", None) if hasattr(
+            self.llm, "usage_metadata"
+        ) else None
 
-        parts: List[str] = []
+        if usage_meta:
+            prompt_tokens = usage_meta.get("input_tokens", 0)
+            completion_tokens = usage_meta.get("output_tokens", 0)
+        else:
+            logger.warning("LLM 响应缺少 usage_metadata，token 统计归零")
+            prompt_tokens = 0
+            completion_tokens = 0
+
+        usage = self._calculate_usage(prompt_tokens, completion_tokens)
+
+        logger.info(
+            "LLM 响应完成 | tokens=%d | cost=¥%.6f",
+            usage.total_tokens,
+            usage.estimated_cost_cny,
+        )
+        logger.debug("LLM 回答内容：%s", response[:200])
+
+        self.history.append(HumanMessage(content=question))
+        self.history.append(AIMessage(content=response))
+        self._trim_history()
+
+        return ChatResult(content=response, usage=usage, sources=sources)
+
+    def ask_stream(self, question: str) -> Generator[StreamEvent, None, None]:
+        logger.info("收到流式问题 | question=%r", question)
+
+        docs = self.vectorstore.similarity_search(
+            question, k=self.cfg.retrieve_top_k
+        )
+        logger.debug("检索到 %d 个文档片段", len(docs))
+
+        context = "\n\n".join(d.page_content for d in docs)
+        sources = sorted(set(d.metadata.get("source", "") for d in docs))
+
+        messages = self.history + [HumanMessage(content=question)]
+
+        logger.debug("开始流式调用 LLM | history_len=%d", len(self.history))
+
+        chunks = []
         prompt_tokens = 0
         completion_tokens = 0
 
-        for chunk in llm.stream(messages):
-            text = chunk.content or ""
+        for chunk in self.llm_stream.stream(
+            self.prompt.format_messages(
+                context=context, question=question, history=messages
+            )
+        ):
+            text = chunk.content
             if text:
-                parts.append(text)
-                yield StreamEvent(delta=text, done=False)
+                chunks.append(text)
+                yield StreamEvent(delta=text)
 
-            # 从 chunk 中提取 token 使用量（LangChain 0.3+ 支持）。
-            # 降级方案：如果 usage_metadata 为 None（兼容接口不支持或 LangChain 版本过低），
-            # token 统计会显示 0，不影响对话功能，只是费用估算失效。
-            # 用户可通过 DeepSeek 控制台查看实际消耗。
+            if hasattr(chunk, "usage_metadata") and chunk.usage_metadata:
+                prompt_tokens = chunk.usage_metadata.get("input_tokens", 0)
+                completion_tokens = chunk.usage_metadata.get("output_tokens", 0)
 
-            usage = getattr(chunk, "usage_metadata", None)
-            if usage:
-                prompt_tokens = usage.get("input_tokens", prompt_tokens)
-                completion_tokens = usage.get("output_tokens", completion_tokens)
+        full_response = "".join(chunks)
+        usage = self._calculate_usage(prompt_tokens, completion_tokens)
 
-           
-
-        full_text = "".join(parts).strip()
-        total_tokens = prompt_tokens + completion_tokens
-
-        result = ChatResult(
-            content=full_text,
-            usage=TokenUsage(
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
-                total_tokens=total_tokens,
-                estimated_cost_cny=_estimate_cost(prompt_tokens, completion_tokens),
-            ),
-            sources=sources,
+        logger.info(
+            "流式响应完成 | tokens=%d | cost=¥%.6f",
+            usage.total_tokens,
+            usage.estimated_cost_cny,
         )
+        logger.debug("流式回答内容：%s", full_response[:200])
 
-        # 只有走到这里（流式全部成功）才更新记忆，成对写入。
-        # 中途任何异常都不会执行到这两行，因此记忆不会被污染。
         self.history.append(HumanMessage(content=question))
-        self.history.append(AIMessage(content=full_text))
+        self.history.append(AIMessage(content=full_response))
         self._trim_history()
 
-        yield StreamEvent(done=True, result=result)
+        yield StreamEvent(
+            done=True,
+            result=ChatResult(content=full_response, usage=usage, sources=sources),
+        )
 
-    def ask_stream(self, question: str) -> Generator[StreamEvent, None, None]:
-        yield from self._core_stream(question)
+    def reset(self):
+        self.history.clear()
+        logger.info("对话历史已清空")
 
-    def ask(self, question: str) -> ChatResult:
-        """
-        非流式：复用流式核心，收集后返回。
-        """
-        result: Optional[ChatResult] = None
-        for event in self._core_stream(question):
-            if event.done:
-                result = event.result
-        assert result is not None
-        return result
+    def _trim_history(self):
+        max_messages = self.cfg.memory_turns * 2
+        if len(self.history) > max_messages:
+            removed = len(self.history) - max_messages
+            self.history = self.history[-max_messages:]
+            logger.debug("历史记录已裁剪 | 移除 %d 条，保留 %d 条", removed, max_messages)
+
+    def _calculate_usage(
+        self, prompt_tokens: int, completion_tokens: int
+    ) -> TokenUsage:
+        total = prompt_tokens + completion_tokens
+        cost = (
+            prompt_tokens / 1_000_000 * self.cfg.input_price_per_1m
+            + completion_tokens / 1_000_000 * self.cfg.output_price_per_1m
+        )
+        return TokenUsage(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total,
+            estimated_cost_cny=cost,
+        )
