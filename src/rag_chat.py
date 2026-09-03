@@ -8,13 +8,12 @@ from typing import Generator
 from langchain_community.vectorstores import FAISS
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.output_parsers import StrOutputParser
-from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 
 from src.config import get_config
 from src.llm import get_llm
 from src.logging_config import get_logger
-from src.prompt import RAG_PROMPT_TEMPLATE
+from src.prompt import build_rag_prompt
 from src.vectorstore import load_vectorstore
 
 logger = get_logger(__name__)
@@ -51,7 +50,7 @@ class SensorRAGChat:
         self.llm_stream: ChatOpenAI = get_llm(streaming=True)
         self.history: list[BaseMessage] = []
 
-        self.prompt = ChatPromptTemplate.from_template(RAG_PROMPT_TEMPLATE)
+        self.prompt = build_rag_prompt()
         self.chain = self.prompt | self.llm | StrOutputParser()
 
         logger.info("SensorRAGChat 初始化完成 | memory_turns=%d", self.cfg.memory_turns)
@@ -75,17 +74,18 @@ class SensorRAGChat:
         context = "\n\n".join(d.page_content for d in docs)
         sources = sorted(set(d.metadata.get("source", "") for d in docs))
 
-        messages = self.history + [HumanMessage(content=question)]
-
         logger.debug("开始调用 LLM | history_len=%d", len(self.history))
 
-        response = self.chain.invoke(
-            {"context": context, "question": question, "history": messages}
+        # 直接调 llm 拿 AIMessage（带 usage_metadata），不用 StrOutputParser
+        messages = self.prompt.format_messages(
+            context=context,
+            question=question,
+            history=self.history,
         )
+        response = self.llm.invoke(messages)
 
-        usage_meta = getattr(response, "usage_metadata", None) if hasattr(
-            self.llm, "usage_metadata"
-        ) else None
+        content = response.content
+        usage_meta = getattr(response, "usage_metadata", None)
 
         if usage_meta:
             prompt_tokens = usage_meta.get("input_tokens", 0)
@@ -102,13 +102,13 @@ class SensorRAGChat:
             usage.total_tokens,
             usage.estimated_cost_cny,
         )
-        logger.debug("LLM 回答内容：%s", response[:200])
+        logger.debug("LLM 回答内容：%s", content[:200])
 
         self.history.append(HumanMessage(content=question))
-        self.history.append(AIMessage(content=response))
+        self.history.append(AIMessage(content=content))
         self._trim_history()
 
-        return ChatResult(content=response, usage=usage, sources=sources)
+        return ChatResult(content=content, usage=usage, sources=sources)
 
     def ask_stream(self, question: str) -> Generator[StreamEvent, None, None]:
         logger.info("收到流式问题 | question=%r", question)
@@ -121,7 +121,11 @@ class SensorRAGChat:
         context = "\n\n".join(d.page_content for d in docs)
         sources = sorted(set(d.metadata.get("source", "") for d in docs))
 
-        messages = self.history + [HumanMessage(content=question)]
+        messages = self.prompt.format_messages(
+            context=context,
+            question=question,
+            history=self.history,
+        )
 
         logger.debug("开始流式调用 LLM | history_len=%d", len(self.history))
 
@@ -129,11 +133,7 @@ class SensorRAGChat:
         prompt_tokens = 0
         completion_tokens = 0
 
-        for chunk in self.llm_stream.stream(
-            self.prompt.format_messages(
-                context=context, question=question, history=messages
-            )
-        ):
+        for chunk in self.llm_stream.stream(messages):
             text = chunk.content
             if text:
                 chunks.append(text)
@@ -171,7 +171,9 @@ class SensorRAGChat:
         if len(self.history) > max_messages:
             removed = len(self.history) - max_messages
             self.history = self.history[-max_messages:]
-            logger.debug("历史记录已裁剪 | 移除 %d 条，保留 %d 条", removed, max_messages)
+            logger.debug(
+                "历史记录已裁剪 | 移除 %d 条，保留 %d 条", removed, max_messages
+            )
 
     def _calculate_usage(
         self, prompt_tokens: int, completion_tokens: int

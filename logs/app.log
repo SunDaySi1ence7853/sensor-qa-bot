@@ -1,0 +1,43 @@
+2026-09-03 15:40:28,651 | DEBUG   | src.logging_config:98 | 日志系统已初始化 | debug=True | log_dir=C:\Users\34627\Desktop\sensor-qa-bot\logs
+2026-09-03 15:40:28,651 | DEBUG   | src.config:105 | 配置加载完成 | model=deepseek-v4-flash | provider=local | top_k=3 | memory_turns=6
+2026-09-03 15:40:28,651 | INFO    | src.vectorstore:95 | 开始构建向量库...
+2026-09-03 15:40:28,652 | INFO    | src.vectorstore:44 | 发现 15 个候选文件
+2026-09-03 15:40:28,660 | DEBUG   | src.vectorstore:53 | 已加载文件：01_温湿度传感器.md
+2026-09-03 15:40:28,666 | DEBUG   | src.vectorstore:53 | 已加载文件：02_压力传感器.md
+2026-09-03 15:40:28,670 | DEBUG   | src.vectorstore:53 | 已加载文件：03_光电传感器.md
+2026-09-03 15:40:28,679 | DEBUG   | src.vectorstore:53 | 已加载文件：04_加速度传感器.md
+2026-09-03 15:40:28,684 | DEBUG   | src.vectorstore:53 | 已加载文件：05_红外传感器.md
+2026-09-03 15:40:28,691 | DEBUG   | src.vectorstore:53 | 已加载文件：06_超声波传感器.md
+2026-09-03 15:40:28,697 | DEBUG   | src.vectorstore:53 | 已加载文件：07_气体传感器.md
+2026-09-03 15:40:28,702 | DEBUG   | src.vectorstore:53 | 已加载文件：08_磁传感器.md
+2026-09-03 15:40:28,708 | DEBUG   | src.vectorstore:53 | 已加载文件：09_应变式传感器.md
+2026-09-03 15:40:28,714 | DEBUG   | src.vectorstore:53 | 已加载文件：10_电容式传感器.md
+2026-09-03 15:40:28,721 | DEBUG   | src.vectorstore:53 | 已加载文件：11_电感式传感器.md
+2026-09-03 15:40:28,729 | DEBUG   | src.vectorstore:53 | 已加载文件：12_压电传感器.md
+2026-09-03 15:40:28,732 | DEBUG   | src.vectorstore:53 | 已加载文件：13_热电偶温度传感器.md
+2026-09-03 15:40:28,738 | DEBUG   | src.vectorstore:53 | 已加载文件：14_光纤传感器.md
+2026-09-03 15:40:28,744 | DEBUG   | src.vectorstore:53 | 已加载文件：15_图像传感器.md
+2026-09-03 15:40:28,744 | INFO    | src.vectorstore:71 | 已加载全部 15 个文件
+2026-09-03 15:40:28,744 | INFO    | src.vectorstore:80 | 文档切分完成：15 chunks
+2026-09-03 15:40:28,744 | DEBUG   | src.vectorstore:81 | 切分参数 | chunk_size=500 | chunk_overlap=80
+2026-09-03 15:40:28,744 | INFO    | src.embeddings:23 | 使用本地 embedding：shibing624/text2vec-base-chinese
+2026-09-03 15:40:28,832 | DEBUG   | src.embeddings:33 | 正在初始化 HuggingFaceEmbeddings...
+2026-09-03 15:40:28,834 | INFO    | sentence_transformers.base.model:199 | No device provided, using cpu
+2026-09-03 15:40:31,397 | WARNING | huggingface_hub.utils._http:955 | Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+2026-09-03 15:40:31,398 | DEBUG   | sentence_transformers.util.file_io:129 | Could not load 'config_sentence_transformers.json' from 'shibing624/text2vec-base-chinese': 404 Client Error. (Request ID: Root=1-6a99246d-422cb95720bad06903e77ee8;1be0dc4e-0712-4b9a-b2f7-4c57a3aa7b5c)
+
+Entry Not Found for url: https://huggingface.co/shibing624/text2vec-base-chinese/resolve/main/config_sentence_transformers.json.
+2026-09-03 15:40:31,398 | INFO    | sentence_transformers.base.model:1080 | Loading SentenceTransformer model from shibing624/text2vec-base-chinese.
+2026-09-03 15:40:31,722 | DEBUG   | sentence_transformers.util.file_io:129 | Could not load 'config_sentence_transformers.json' from 'shibing624/text2vec-base-chinese': 404 Client Error. (Request ID: Root=1-6a99246d-2d1ff77363180acc0b147f60;1e822303-205f-4d58-b230-934b7f6e4dfd)
+
+Entry Not Found for url: https://huggingface.co/shibing624/text2vec-base-chinese/resolve/main/config_sentence_transformers.json.
+2026-09-03 15:40:39,826 | DEBUG   | sentence_transformers.base.modules.transformer:941 | Active modality config: {'text': {'method': 'forward', 'method_output_name': 'last_hidden_state'}}
+2026-09-03 15:40:40,738 | DEBUG   | src.embeddings:38 | HuggingFaceEmbeddings 初始化完成
+2026-09-03 15:40:40,738 | INFO    | src.vectorstore:99 | 正在生成 embeddings（首次运行或模型未缓存时可能较慢）...
+2026-09-03 15:40:42,011 | DEBUG   | faiss.loader:116 | Environment variable FAISS_OPT_LEVEL is not set, so let's pick the instruction set according to the current CPU
+2026-09-03 15:40:42,013 | INFO    | faiss.loader:160 | Loading faiss with AVX2 support.
+2026-09-03 15:40:42,013 | INFO    | faiss.loader:166 | Could not load library with AVX2 support due to:
+ModuleNotFoundError("No module named 'faiss.swigfaiss_avx2'")
+2026-09-03 15:40:42,013 | INFO    | faiss.loader:186 | Loading faiss.
+2026-09-03 15:40:42,388 | INFO    | faiss.loader:189 | Successfully loaded faiss.
+2026-09-03 15:40:42,399 | INFO    | src.vectorstore:101 | 向量库构建完成
