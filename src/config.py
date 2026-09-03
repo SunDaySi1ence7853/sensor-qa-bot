@@ -1,11 +1,5 @@
 """
 统一配置。
-
-设计要点：
-只在本模块调用一次 load_dotenv()，其他模块从这里取配置，
-避免 load_dotenv() 被反复调用。
-
-新增：对关键配置进行边界校验，防止用户误配导致运行时异常。
 """
 
 import os
@@ -14,75 +8,59 @@ from functools import lru_cache
 
 from dotenv import load_dotenv
 
+from src.logging_config import get_logger
+
+logger = get_logger(__name__)
+
 load_dotenv()
 
 
 @dataclass(frozen=True)
 class Config:
-    # DeepSeek Chat
     deepseek_api_key: str
     deepseek_model: str
     deepseek_base_url: str
-
-    # 费用估算
     input_price_per_1m: float
     output_price_per_1m: float
-
-    # embedding
     embedding_provider: str
     local_embedding_model: str
     deepseek_embedding_model: str
-
-    # RAG
     retrieve_top_k: int
     chunk_size: int
     chunk_overlap: int
     vectorstore_dir: str
-
-    # memory
     memory_turns: int
 
 
 def _parse_int(key: str, default: int, min_val: int = 1, max_val: int | None = None) -> int:
-    """
-    安全解析整数配置，带边界校验。
-    """
     try:
         val = int(os.getenv(key, str(default)))
     except ValueError:
-        raise ValueError(
-            f"配置 {key} 必须是整数，当前值：{os.getenv(key)}"
-        )
-    
+        logger.error("配置 %s 不是整数：%r", key, os.getenv(key))
+        raise ValueError(f"配置 {key} 必须是整数，当前值：{os.getenv(key)}")
+
     if val < min_val:
-        raise ValueError(
-            f"配置 {key} 不能小于 {min_val}，当前值：{val}"
-        )
-    
+        logger.error("配置 %s=%d 小于最小值 %d", key, val, min_val)
+        raise ValueError(f"配置 {key} 不能小于 {min_val}，当前值：{val}")
+
     if max_val is not None and val > max_val:
-        raise ValueError(
-            f"配置 {key} 不能大于 {max_val}，当前值：{val}"
-        )
-    
+        logger.error("配置 %s=%d 大于最大值 %d", key, val, max_val)
+        raise ValueError(f"配置 {key} 不能大于 {max_val}，当前值：{val}")
+
     return val
 
 
 def _parse_float(key: str, default: float, min_val: float = 0.0) -> float:
-    """
-    安全解析浮点数配置。
-    """
     try:
         val = float(os.getenv(key, str(default)))
     except ValueError:
-        raise ValueError(
-            f"配置 {key} 必须是数字，当前值：{os.getenv(key)}"
-        )
-    
+        logger.error("配置 %s 不是数字：%r", key, os.getenv(key))
+        raise ValueError(f"配置 {key} 必须是数字，当前值：{os.getenv(key)}")
+
     if val < min_val:
-        raise ValueError(
-            f"配置 {key} 不能小于 {min_val}，当前值：{val}"
-        )
-    
+        logger.error("配置 %s=%f 小于最小值 %f", key, val, min_val)
+        raise ValueError(f"配置 {key} 不能小于 {min_val}，当前值：{val}")
+
     return val
 
 
@@ -90,19 +68,20 @@ def _parse_float(key: str, default: float, min_val: float = 0.0) -> float:
 def get_config() -> Config:
     chunk_size = _parse_int("CHUNK_SIZE", 500, min_val=50, max_val=2000)
     chunk_overlap = _parse_int("CHUNK_OVERLAP", 80, min_val=0, max_val=chunk_size - 1)
-    
+
     if chunk_overlap >= chunk_size:
         raise ValueError(
             f"CHUNK_OVERLAP ({chunk_overlap}) 必须小于 CHUNK_SIZE ({chunk_size})"
         )
-    
+
     embedding_provider = os.getenv("EMBEDDING_PROVIDER", "local").lower()
     if embedding_provider not in ("local", "deepseek"):
+        logger.error("EMBEDDING_PROVIDER 非法：%r", embedding_provider)
         raise ValueError(
             f"EMBEDDING_PROVIDER 只能是 local 或 deepseek，当前值：{embedding_provider}"
         )
-    
-    return Config(
+
+    cfg = Config(
         deepseek_api_key=os.getenv("DEEPSEEK_API_KEY", ""),
         deepseek_model=os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
         deepseek_base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
@@ -119,16 +98,25 @@ def get_config() -> Config:
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
         vectorstore_dir=os.getenv("VECTORSTORE_DIR", "vectorstore"),
-        memory_turns=_parse_int("MEMORY_TURNS", 6, min_val=2, max_val=100),
+        memory_turns=_parse_int("MEMORY_TURNS", 6, min_val=1, max_val=100),
     )
+
+    # DEBUG 级：完整配置落文件，不打扰终端
+    logger.debug(
+        "配置加载完成 | model=%s | provider=%s | top_k=%d | memory_turns=%d",
+        cfg.deepseek_model,
+        cfg.embedding_provider,
+        cfg.retrieve_top_k,
+        cfg.memory_turns,
+    )
+
+    return cfg
 
 
 def require_api_key() -> str:
-    """
-    延迟校验：只有真正要调 DeepSeek 时才检查 key。
-    """
     cfg = get_config()
     if not cfg.deepseek_api_key:
+        logger.error("DEEPSEEK_API_KEY 缺失")
         raise RuntimeError(
             "没有读取到 DEEPSEEK_API_KEY。\n"
             "请检查项目根目录下的 .env 文件。"
