@@ -35,11 +35,11 @@ def main():
 
         vectorstore.save_local(str(save_path))
 
-        print(f"\n✅ 向量库已保存到：{save_path}")
+        print(f"\n  ！！向量库已保存到：{save_path}")
         print("\n现在可以运行：python main.py")
 
     except Exception as e:
-        print(f"\n❌ 构建失败：{e}\n", file=sys.stderr)
+        print(f"\n ！！构建失败：{e}\n", file=sys.stderr)
         sys.exit(1)
 
 
