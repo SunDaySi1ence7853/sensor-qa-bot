@@ -41,3 +41,28 @@ ModuleNotFoundError("No module named 'faiss.swigfaiss_avx2'")
 2026-09-03 15:40:42,013 | INFO    | faiss.loader:186 | Loading faiss.
 2026-09-03 15:40:42,388 | INFO    | faiss.loader:189 | Successfully loaded faiss.
 2026-09-03 15:40:42,399 | INFO    | src.vectorstore:101 | 向量库构建完成
+2026-09-03 15:47:26,398 | DEBUG   | src.logging_config:98 | 日志系统已初始化 | debug=True | log_dir=C:\Users\34627\Desktop\sensor-qa-bot\logs
+2026-09-03 15:47:26,398 | DEBUG   | src.config:105 | 配置加载完成 | model=deepseek-v4-flash | provider=local | top_k=3 | memory_turns=6
+2026-09-03 15:47:26,398 | DEBUG   | src.rag_chat:46 | 正在初始化 SensorRAGChat...
+2026-09-03 15:47:26,398 | INFO    | src.vectorstore:122 | 正在加载向量库：C:\Users\34627\Desktop\sensor-qa-bot\vectorstore
+2026-09-03 15:47:26,399 | INFO    | src.embeddings:23 | 使用本地 embedding：shibing624/text2vec-base-chinese
+2026-09-03 15:47:26,423 | DEBUG   | src.embeddings:33 | 正在初始化 HuggingFaceEmbeddings...
+2026-09-03 15:47:26,423 | INFO    | sentence_transformers.base.model:199 | No device provided, using cpu
+2026-09-03 15:47:28,787 | DEBUG   | sentence_transformers.util.file_io:129 | Could not load 'config_sentence_transformers.json' from 'shibing624/text2vec-base-chinese': 404 Client Error. (Request ID: Root=1-6a99260e-32ef8604389a1e53265abbef;a71d4de0-2688-4224-bf3d-cf217293ef64)
+
+Entry Not Found for url: https://huggingface.co/shibing624/text2vec-base-chinese/resolve/main/config_sentence_transformers.json.
+2026-09-03 15:47:28,787 | INFO    | sentence_transformers.base.model:1080 | Loading SentenceTransformer model from shibing624/text2vec-base-chinese.
+2026-09-03 15:47:29,137 | DEBUG   | sentence_transformers.util.file_io:129 | Could not load 'config_sentence_transformers.json' from 'shibing624/text2vec-base-chinese': 404 Client Error. (Request ID: Root=1-6a99260f-658b88b44ba72451080d5b0b;9b7723fb-e788-4870-8170-923a56565027)
+
+Entry Not Found for url: https://huggingface.co/shibing624/text2vec-base-chinese/resolve/main/config_sentence_transformers.json.
+2026-09-03 15:47:29,460 | WARNING | huggingface_hub.utils._http:955 | Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+2026-09-03 15:47:36,331 | DEBUG   | sentence_transformers.base.modules.transformer:941 | Active modality config: {'text': {'method': 'forward', 'method_output_name': 'last_hidden_state'}}
+2026-09-03 15:47:37,245 | DEBUG   | src.embeddings:38 | HuggingFaceEmbeddings 初始化完成
+2026-09-03 15:47:37,249 | DEBUG   | faiss.loader:116 | Environment variable FAISS_OPT_LEVEL is not set, so let's pick the instruction set according to the current CPU
+2026-09-03 15:47:37,250 | INFO    | faiss.loader:160 | Loading faiss with AVX2 support.
+2026-09-03 15:47:37,250 | INFO    | faiss.loader:166 | Could not load library with AVX2 support due to:
+ModuleNotFoundError("No module named 'faiss.swigfaiss_avx2'")
+2026-09-03 15:47:37,250 | INFO    | faiss.loader:186 | Loading faiss.
+2026-09-03 15:47:37,270 | INFO    | faiss.loader:189 | Successfully loaded faiss.
+2026-09-03 15:47:37,299 | INFO    | src.vectorstore:132 | 向量库加载完成
+2026-09-03 15:47:40,211 | INFO    | src.rag_chat:56 | SensorRAGChat 初始化完成 | memory_turns=6

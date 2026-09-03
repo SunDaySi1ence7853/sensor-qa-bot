@@ -55,21 +55,25 @@ class TestLoadDocuments:
         assert "DHT22" in all_content
         assert "BMP280" in all_content
 
-    def test_skips_gbk_encoded_file(self, fake_knowledge_dir, capsys):
-        """编码错误的文件应被跳过，不影响其他文件。"""
-        (fake_knowledge_dir / "good.txt").write_text(
-            "这是正常的 UTF-8 文件。", encoding="utf-8"
-        )
-        # 写一个 GBK 编码文件
-        (fake_knowledge_dir / "bad_gbk.txt").write_bytes(
-            "中文内容".encode("gbk")
-        )
+   def test_skips_gbk_encoded_file(self, tmp_knowledge_dir, monkeypatch, caplog):
+    import logging
+    from src import vectorstore
 
-        docs = vs_module._load_documents()
-        captured = capsys.readouterr()
+    monkeypatch.setattr(vectorstore, "KNOWLEDGE_DIR", tmp_knowledge_dir)
 
-        assert "bad_gbk.txt" in captured.out
-        assert any("正常" in d.page_content for d in docs)
+    # 正常 UTF-8 文件
+    (tmp_knowledge_dir / "good.txt").write_text("正常内容", encoding="utf-8")
+
+    # GBK 编码文件（会读取失败）
+    (tmp_knowledge_dir / "bad_gbk.txt").write_bytes("你好".encode("gbk"))
+
+    with caplog.at_level(logging.WARNING, logger="src.vectorstore"):
+        docs = vectorstore._load_documents()
+
+    # 断言 warning 里提到了 bad_gbk.txt
+    assert any("bad_gbk.txt" in rec.message for rec in caplog.records)
+    # 且正常文件被加载了
+    assert len(docs) > 0
 
     def test_all_files_broken_raises(self, fake_knowledge_dir):
         (fake_knowledge_dir / "broken1.txt").write_bytes(

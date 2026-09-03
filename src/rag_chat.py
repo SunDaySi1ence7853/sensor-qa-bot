@@ -7,7 +7,6 @@ from typing import Generator
 
 from langchain_community.vectorstores import FAISS
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
-from langchain_core.output_parsers import StrOutputParser
 from langchain_openai import ChatOpenAI
 
 from src.config import get_config
@@ -42,18 +41,17 @@ class StreamEvent:
 
 
 class SensorRAGChat:
-    def __init__(self):
-        logger.debug("正在初始化 SensorRAGChat...")
-        self.cfg = get_config()
-        self.vectorstore: FAISS = load_vectorstore()
-        self.llm: ChatOpenAI = get_llm(streaming=False)
-        self.llm_stream: ChatOpenAI = get_llm(streaming=True)
-        self.history: list[BaseMessage] = []
+   def __init__(self):
+    logger.debug("正在初始化 SensorRAGChat...")
+    self.cfg = get_config()
+    self.vectorstore: FAISS = load_vectorstore()
+    self.llm: ChatOpenAI = get_llm(streaming=False)
+    self.llm_stream: ChatOpenAI = get_llm(streaming=True)
+    self.history: list[BaseMessage] = []
 
-        self.prompt = build_rag_prompt()
-        self.chain = self.prompt | self.llm | StrOutputParser()
+    self.prompt = build_rag_prompt()
 
-        logger.info("SensorRAGChat 初始化完成 | memory_turns=%d", self.cfg.memory_turns)
+    logger.info("SensorRAGChat 初始化完成 | memory_turns=%d", self.cfg.memory_turns)
 
     def ask(self, question: str) -> ChatResult:
         logger.info("收到问题 | question=%r", question)
