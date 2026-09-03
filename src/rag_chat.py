@@ -41,17 +41,15 @@ class StreamEvent:
 
 
 class SensorRAGChat:
-   def __init__(self):
-    logger.debug("正在初始化 SensorRAGChat...")
-    self.cfg = get_config()
-    self.vectorstore: FAISS = load_vectorstore()
-    self.llm: ChatOpenAI = get_llm(streaming=False)
-    self.llm_stream: ChatOpenAI = get_llm(streaming=True)
-    self.history: list[BaseMessage] = []
-
-    self.prompt = build_rag_prompt()
-
-    logger.info("SensorRAGChat 初始化完成 | memory_turns=%d", self.cfg.memory_turns)
+    def __init__(self):
+        logger.debug("正在初始化 SensorRAGChat...")
+        self.cfg = get_config()
+        self.vectorstore: FAISS = load_vectorstore()
+        self.llm: ChatOpenAI = get_llm(streaming=False)
+        self.llm_stream: ChatOpenAI = get_llm(streaming=True)
+        self.history: list[BaseMessage] = []
+        self.prompt = build_rag_prompt()
+        logger.info("SensorRAGChat 初始化完成 | memory_turns=%d", self.cfg.memory_turns)
 
     def ask(self, question: str) -> ChatResult:
         logger.info("收到问题 | question=%r", question)
@@ -74,7 +72,6 @@ class SensorRAGChat:
 
         logger.debug("开始调用 LLM | history_len=%d", len(self.history))
 
-        # 直接调 llm 拿 AIMessage（带 usage_metadata），不用 StrOutputParser
         messages = self.prompt.format_messages(
             context=context,
             question=question,

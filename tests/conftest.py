@@ -103,7 +103,21 @@ class FakeLLM:
                 "output_tokens": self._output_tokens,
             },
         )
-
+    def invoke(self, messages):
+        """新增：支持非流式调用，返回完整 AIMessage。"""
+        from langchain_core.messages import AIMessage
+        
+        self.call_count += 1
+        # 拼接所有 chunks 成完整内容
+        full_content = "".join(self._chunks)
+        
+        msg = AIMessage(content=full_content)
+        msg.usage_metadata = {
+            "input_tokens": self._input_tokens,
+            "output_tokens": self._output_tokens,
+            "total_tokens": self._input_tokens + self._output_tokens,
+        }
+        return msg
 
 class FakeDoc:
     def __init__(self, content: str, source: str = "fake.txt"):

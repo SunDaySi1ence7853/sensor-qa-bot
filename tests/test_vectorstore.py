@@ -55,33 +55,26 @@ class TestLoadDocuments:
         assert "DHT22" in all_content
         assert "BMP280" in all_content
 
-   def test_skips_gbk_encoded_file(self, tmp_knowledge_dir, monkeypatch, caplog):
-    import logging
-    from src import vectorstore
+    def test_skips_gbk_encoded_file(self, fake_knowledge_dir, monkeypatch, caplog):
+        import logging
 
-    monkeypatch.setattr(vectorstore, "KNOWLEDGE_DIR", tmp_knowledge_dir)
+        # 正常 UTF-8 文件
+        (fake_knowledge_dir / "good.txt").write_text("正常内容", encoding="utf-8")
 
-    # 正常 UTF-8 文件
-    (tmp_knowledge_dir / "good.txt").write_text("正常内容", encoding="utf-8")
+        # GBK 编码文件（会读取失败）
+        (fake_knowledge_dir / "bad_gbk.txt").write_bytes("你好".encode("gbk"))
 
-    # GBK 编码文件（会读取失败）
-    (tmp_knowledge_dir / "bad_gbk.txt").write_bytes("你好".encode("gbk"))
+        with caplog.at_level(logging.WARNING, logger="src.vectorstore"):
+            docs = vs_module._load_documents()
 
-    with caplog.at_level(logging.WARNING, logger="src.vectorstore"):
-        docs = vectorstore._load_documents()
-
-    # 断言 warning 里提到了 bad_gbk.txt
-    assert any("bad_gbk.txt" in rec.message for rec in caplog.records)
-    # 且正常文件被加载了
-    assert len(docs) > 0
+        # 断言 warning 里提到了 bad_gbk.txt
+        assert any("bad_gbk.txt" in rec.message for rec in caplog.records)
+        # 且正常文件被加载了
+        assert len(docs) > 0
 
     def test_all_files_broken_raises(self, fake_knowledge_dir):
-        (fake_knowledge_dir / "broken1.txt").write_bytes(
-            "中文".encode("gbk")
-        )
-        (fake_knowledge_dir / "broken2.txt").write_bytes(
-            "更多中文".encode("gbk")
-        )
+        (fake_knowledge_dir / "broken1.txt").write_bytes("中文".encode("gbk"))
+        (fake_knowledge_dir / "broken2.txt").write_bytes("更多中文".encode("gbk"))
 
         with pytest.raises(RuntimeError, match="所有文件都无法读取"):
             vs_module._load_documents()
@@ -107,9 +100,7 @@ class TestLoadVectorstore:
         with pytest.raises(RuntimeError, match="向量库不存在"):
             vs_module.load_vectorstore()
 
-    def test_corrupt_index_raises_friendly_error(
-        self, valid_env, tmp_path, monkeypatch
-    ):
+    def test_corrupt_index_raises_friendly_error(self, valid_env, tmp_path, monkeypatch):
         """索引文件存在但损坏时应给出清晰指引。"""
         vdir = tmp_path / "vectorstore_corrupt"
         vdir.mkdir()
@@ -120,9 +111,7 @@ class TestLoadVectorstore:
         valid_env.setenv("VECTORSTORE_DIR", "vectorstore_corrupt")
 
         # mock 掉 embeddings 以避免真的下载模型
-        monkeypatch.setattr(
-            vs_module, "get_embeddings", lambda: MagicMock()
-        )
+        monkeypatch.setattr(vs_module, "get_embeddings", lambda: MagicMock())
 
         with pytest.raises(RuntimeError, match="向量库加载失败"):
             vs_module.load_vectorstore()
