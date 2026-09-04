@@ -66,3 +66,10 @@ ModuleNotFoundError("No module named 'faiss.swigfaiss_avx2'")
 2026-09-03 15:47:37,270 | INFO    | faiss.loader:189 | Successfully loaded faiss.
 2026-09-03 15:47:37,299 | INFO    | src.vectorstore:132 | 向量库加载完成
 2026-09-03 15:47:40,211 | INFO    | src.rag_chat:56 | SensorRAGChat 初始化完成 | memory_turns=6
+2026-09-04 19:32:24,982 | DEBUG   | src.logging_config:98 | 日志系统已初始化 | debug=False | log_dir=C:\Users\34627\Desktop\Program building\sensor-qa-bot\logs
+2026-09-04 19:32:24,982 | DEBUG   | src.config:105 | 配置加载完成 | model=deepseek-v4-flash | provider=local | top_k=3 | memory_turns=6
+2026-09-04 19:32:38,724 | INFO    | sentence_transformers.base.model:199 | No device provided, using cpu
+2026-09-04 19:34:07,771 | WARNING | huggingface_hub.utils._http:513 | '[WinError 10060] 由于连接方在一段时间后没有正确答复或连接的主机没有反应，连接尝试失败。' thrown while requesting HEAD https://huggingface.co/shibing624/text2vec-base-chinese/resolve/main/./config_sentence_transformers.json
+2026-09-04 19:34:07,771 | WARNING | huggingface_hub.utils._http:526 | Retrying in 1s [Retry 1/5].
+2026-09-04 19:34:50,863 | WARNING | huggingface_hub.utils._http:513 | '[WinError 10060] 由于连接方在一段时间后没有正确答复或连接的主机没有反应，连接尝试失败。' thrown while requesting HEAD https://huggingface.co/shibing624/text2vec-base-chinese/resolve/main/./config_sentence_transformers.json
+2026-09-04 19:34:50,863 | WARNING | huggingface_hub.utils._http:526 | Retrying in 2s [Retry 2/5].
