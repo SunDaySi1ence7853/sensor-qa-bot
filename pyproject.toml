@@ -1,0 +1,124 @@
+[build-system]
+requires = ["setuptools>=64.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+# ============================================================
+# 项目元信息
+# ============================================================
+[project]
+name = "sensor-qa-bot"
+version = "0.3.0"
+description = "基于 RAG 的传感器知识库中文问答机器人（DeepSeek + LangChain + FAISS）"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "F1NeM0t1oN" },
+]
+keywords = ["rag", "sensor", "qa", "langchain", "deepseek", "faiss"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Intended Audience :: Developers",
+]
+
+# ------------------------------------------------------------
+# 运行时依赖
+# ------------------------------------------------------------
+dependencies = [
+    # LangChain 核心
+    "langchain>=0.2.0",
+    "langchain-core>=0.2.0",
+    "langchain-community>=0.2.0",
+    "langchain-openai>=0.1.0",
+    "langchain-huggingface>=0.1.0",
+
+    # 向量库 & Embedding
+    "faiss-cpu>=1.7.4",
+    "sentence-transformers>=2.2.0",
+
+    # 文档加载
+    "unstructured>=0.12.0",
+    "markdown>=3.5.0",
+
+    # 配置
+    "python-dotenv>=1.0.0",
+
+    # CLI 与输出
+    "typer>=0.9.0",
+    "rich>=13.0.0",
+]
+
+# ------------------------------------------------------------
+# 可选依赖：开发/测试
+# ------------------------------------------------------------
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=5.0.0",
+    "pytest-mock>=3.12.0",
+    "black>=24.0.0",
+    "ruff>=0.3.0",
+]
+
+# ------------------------------------------------------------
+# 项目链接
+# ------------------------------------------------------------
+[project.urls]
+Homepage = "https://github.com/SunDaySi1ence7853/sensor-qa-bot"
+Repository = "https://github.com/SunDaySi1ence7853/sensor-qa-bot"
+Issues = "https://github.com/SunDaySi1ence7853/sensor-qa-bot/issues"
+
+# ============================================================
+# CLI 入口点（任务 2）
+# ============================================================
+[project.scripts]
+sensor-qa = "src.cli:app_chat"
+sensor-qa-build = "src.cli:app_build"
+
+# ============================================================
+# 包发现
+# ============================================================
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+exclude = ["tests*", "logs*", "vectorstore*", "knowledge_base*"]
+
+[tool.setuptools.package-data]
+"src" = ["*.md", "*.txt"]
+
+# ============================================================
+# 工具配置
+# ============================================================
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-v --tb=short"
+
+[tool.coverage.run]
+source = ["src"]
+omit = ["src/cli.py", "src/__init__.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+]
+
+[tool.black]
+line-length = 88
+target-version = ["py310"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B"]
+ignore = ["E501"]  # 行长交给 black 管
