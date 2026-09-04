@@ -1,140 +1,66 @@
 """
-向量库构建与加载（FAISS）。
+向量库加载与构建。
+
+安全说明：
+FAISS 使用 pickle 序列化，加载时必须显式开启
+allow_dangerous_deserialization。本模块仅加载由本项目
+build 命令生成、存储在受控本地路径下的向量库文件。
 """
 
 from pathlib import Path
 
-from langchain_community.document_loaders import TextLoader
 from langchain_community.vectorstores import FAISS
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from src.config import get_config
 from src.embeddings import get_embeddings
-from src.logging_config import get_logger
-
-logger = get_logger(__name__)
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-KNOWLEDGE_DIR = PROJECT_ROOT / "knowledge"
-
-
-def _load_documents():
-    cfg = get_config()
-
-    if not KNOWLEDGE_DIR.exists():
-        logger.error("知识库目录不存在：%s", KNOWLEDGE_DIR)
-        raise RuntimeError(
-            f"知识库目录不存在：{KNOWLEDGE_DIR}\n"
-            "请先运行：python scripts\\create_sample_knowledge.py"
-        )
-
-    files = sorted(
-        p
-        for p in KNOWLEDGE_DIR.iterdir()
-        if p.is_file() and p.suffix.lower() in (".txt", ".md")
-    )
-
-    if not files:
-        logger.error("知识库为空：%s", KNOWLEDGE_DIR)
-        raise RuntimeError(
-            f"知识库为空：{KNOWLEDGE_DIR}\n"
-            "请先运行：python scripts\\create_sample_knowledge.py"
-        )
-
-    logger.info("发现 %d 个候选文件", len(files))
-
-    raw_docs = []
-    skipped = []
-
-    for f in files:
-        try:
-            loader = TextLoader(str(f), encoding="utf-8")
-            raw_docs.extend(loader.load())
-            logger.debug("已加载文件：%s", f.name)
-        except UnicodeDecodeError:
-            skipped.append(f.name)
-            logger.warning("跳过文件（编码错误，非 UTF-8）：%s", f.name)
-        except Exception as e:
-            skipped.append(f.name)
-            logger.warning("跳过文件（加载失败）：%s | 原因：%s", f.name, e)
-
-    if not raw_docs:
-        logger.error("知识库中所有文件都无法读取（共 %d 个）", len(files))
-        raise RuntimeError(
-            f"知识库中所有文件都无法读取（共 {len(files)} 个文件）。\n"
-            f"请检查文件编码是否为 UTF-8。"
-        )
-
-    if skipped:
-        logger.info("已加载 %d 个文件，跳过 %d 个", len(files) - len(skipped), len(skipped))
-    else:
-        logger.info("已加载全部 %d 个文件", len(files))
-
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=cfg.chunk_size,
-        chunk_overlap=cfg.chunk_overlap,
-        separators=["\n\n", "\n", "。", "！", "？", "；", " ", ""],
-    )
-
-    docs = splitter.split_documents(raw_docs)
-    logger.info("文档切分完成：%d chunks", len(docs))
-    logger.debug(
-        "切分参数 | chunk_size=%d | chunk_overlap=%d",
-        cfg.chunk_size,
-        cfg.chunk_overlap,
-    )
-
-    return docs
-
-
-def build_vectorstore() -> FAISS:
-    """
-    从 knowledge/ 目录构建向量库。
-    供 build_index.py 使用。
-    """
-    logger.info("开始构建向量库...")
-    docs = _load_documents()
-    embeddings = get_embeddings()
-
-    logger.info("正在生成 embeddings（首次运行或模型未缓存时可能较慢）...")
-    vectorstore = FAISS.from_documents(docs, embeddings)
-    logger.info("向量库构建完成")
-
-    return vectorstore
 
 
 def load_vectorstore() -> FAISS:
     """
-    加载已保存的向量库。
-    供 main.py 使用。
+    加载本地 FAISS 向量库。
+
+    安全说明（重要）：
+    ------------------------------------------------------------------
+    allow_dangerous_deserialization=True 会对 FAISS 存储的 pickle 文件
+    执行反序列化。pickle 文件可以在加载时执行任意 Python 代码，
+    加载来源不可信的向量库文件等同于远程代码执行（RCE）。
+
+    当前项目的安全前提：
+      1. 向量库只由本项目的 build 命令在本地生成；
+      2. 向量库目录（VECTORSTORE_DIR）只有开发者/部署者本人可写；
+      3. 不接受任何来自用户上传、网络下载的向量库文件。
+
+    如果未来需要支持从外部加载向量库，必须先：
+      - 校验文件签名/哈希；或
+      - 改用安全的序列化格式（例如把索引和 docstore 分开存 JSON+bin）。
+
+    如果不加这段注释：
+    团队成员在扩展功能时（比如允许用户"导入知识库"），可能不知道
+    这行参数背后的风险，直接把外部文件塞进 load_local，
+    等价于给攻击者开了一个 RCE 入口。
+    ------------------------------------------------------------------
     """
     cfg = get_config()
-    vectorstore_path = PROJECT_ROOT / cfg.vectorstore_dir
+    vectorstore_dir = Path(cfg.vectorstore_dir)
 
-    index_file = vectorstore_path / "index.faiss"
-    if not index_file.exists():
-        logger.error("向量库不存在：%s", vectorstore_path)
-        raise RuntimeError(
-            f"向量库不存在：{vectorstore_path}\n"
-            "请先运行：python build_index.py"
+    if not vectorstore_dir.exists():
+        raise FileNotFoundError(
+            f"向量库目录不存在: {vectorstore_dir}\n"
+            f"请先运行 `python -m src.build_vectorstore` 构建知识库。"
         )
 
-    logger.info("正在加载向量库：%s", vectorstore_path)
+    index_file = vectorstore_dir / "index.faiss"
+    if not index_file.exists():
+        raise FileNotFoundError(
+            f"向量库文件不完整，缺少 index.faiss: {vectorstore_dir}\n"
+            f"请重新运行 `python -m src.build_vectorstore` 构建知识库。"
+        )
 
     embeddings = get_embeddings()
 
-    try:
-        vectorstore = FAISS.load_local(
-            str(vectorstore_path),
-            embeddings,
-            allow_dangerous_deserialization=True,
-        )
-        logger.info("向量库加载完成")
-        return vectorstore
-    except Exception as e:
-        logger.exception("向量库加载失败：%s", vectorstore_path)
-        raise RuntimeError(
-            f"向量库加载失败：{vectorstore_path}\n"
-            f"原因：{e}\n"
-            "建议重新构建：python build_index.py"
-        )
+    # 安全说明见上方 docstring：仅加载本项目在本地生成的向量库文件。
+    return FAISS.load_local(
+        str(vectorstore_dir),
+        embeddings,
+        allow_dangerous_deserialization=True,
+    )

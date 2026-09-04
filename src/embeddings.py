@@ -1,73 +1,73 @@
 """
-Embedding 封装。
+Embedding 模型工厂。
+
+支持两种 provider：
+- local: 使用 HuggingFace 本地模型（默认 shibing624/text2vec-base-chinese）
+- deepseek: 使用 DeepSeek 的 embedding API
+
+防御性改动：
+- base_url 统一规范化，避免用户配置 https://api.deepseek.com/v1 时
+  拼出 /v1/v1 导致 404。
 """
 
+import re
 from functools import lru_cache
 
-from langchain_core.embeddings import Embeddings
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_openai import OpenAIEmbeddings
 
-from src.config import get_config, require_api_key
-from src.logging_config import get_logger
+from src.config import get_config
 
-logger = get_logger(__name__)
+
+def _normalize_base_url(url: str) -> str:
+    """
+    统一规范化 base_url，确保末尾恰好是 /v1。
+
+    支持的输入形式（全部归一化为 https://api.deepseek.com/v1）：
+        https://api.deepseek.com
+        https://api.deepseek.com/
+        https://api.deepseek.com/v1
+        https://api.deepseek.com/v1/
+        https://api.deepseek.com/v1/v1
+
+    如果不做这一步：
+    用户在 .env 里配置 DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
+    时，OpenAIEmbeddings 内部还会再拼一次 /v1，最终请求
+    https://api.deepseek.com/v1/v1/embeddings，直接 404，
+    且错误信息不会告诉用户是 base_url 配错了。
+    """
+    url = url.strip().rstrip("/")
+    # 去掉末尾一个或多个 /v1
+    url = re.sub(r"(/v1)+$", "", url)
+    return url + "/v1"
 
 
 @lru_cache(maxsize=1)
-def get_embeddings() -> Embeddings:
+def get_embeddings():
+    """
+    根据配置返回 embedding 实例。
+    结果被缓存，避免重复加载模型。
+    """
     cfg = get_config()
 
-    if cfg.embedding_provider == "deepseek":
-        logger.info("使用 DeepSeek embedding：%s", cfg.deepseek_embedding_model)
-        return _build_deepseek_embeddings()
-
-    logger.info("使用本地 embedding：%s", cfg.local_embedding_model)
-    return _build_local_embeddings()
-
-
-def _build_local_embeddings() -> Embeddings:
-    from langchain_huggingface import HuggingFaceEmbeddings
-
-    cfg = get_config()
-
-    try:
-        logger.debug("正在初始化 HuggingFaceEmbeddings...")
-        emb = HuggingFaceEmbeddings(
+    if cfg.embedding_provider == "local":
+        return HuggingFaceEmbeddings(
             model_name=cfg.local_embedding_model,
             encode_kwargs={"normalize_embeddings": True},
         )
-        logger.debug("HuggingFaceEmbeddings 初始化完成")
-        return emb
-    except Exception as e:
-        logger.exception("本地 embedding 模型加载失败：%s", cfg.local_embedding_model)
-        raise RuntimeError(
-            f"本地 embedding 模型加载失败：{cfg.local_embedding_model}\n"
-            f"原因：{e}\n"
-            f"请检查模型名是否正确，或首次运行时等待自动下载完成。"
-        )
 
-
-def _build_deepseek_embeddings() -> Embeddings:
-    from langchain_openai import OpenAIEmbeddings
-
-    require_api_key()
-    cfg = get_config()
-
-    base = cfg.deepseek_base_url.rstrip("/")
-    if not base.endswith("/v1"):
-        base = base + "/v1"
-
-    logger.debug("DeepSeek embedding base_url=%s", base)
-
-    try:
+    if cfg.embedding_provider == "deepseek":
+        if not cfg.api_key:
+            raise ValueError(
+                "使用 deepseek embedding 需要设置 DEEPSEEK_API_KEY"
+            )
         return OpenAIEmbeddings(
             model=cfg.deepseek_embedding_model,
-            api_key=cfg.deepseek_api_key,
-            base_url=base,
-            check_embedding_ctx_length=False,
+            api_key=cfg.api_key,
+            base_url=_normalize_base_url(cfg.base_url),
         )
-    except Exception as e:
-        logger.exception("DeepSeek embedding 初始化失败")
-        raise RuntimeError(
-            f"DeepSeek embedding 接口调用失败：{e}\n"
-            f"建议切换回本地模式：在 .env 里设置 EMBEDDING_PROVIDER=local"
-        )
+
+    raise ValueError(
+        f"不支持的 embedding_provider: {cfg.embedding_provider}，"
+        f"可选值为 'local' 或 'deepseek'"
+    )
