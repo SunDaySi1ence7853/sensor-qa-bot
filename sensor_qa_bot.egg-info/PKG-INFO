@@ -6,16 +6,12 @@ Author: F1NeM0t1oN
 License: MIT
 Project-URL: Homepage, https://github.com/SunDaySi1ence7853/sensor-qa-bot
 Project-URL: Repository, https://github.com/SunDaySi1ence7853/sensor-qa-bot
-Project-URL: Issues, https://github.com/SunDaySi1ence7853/sensor-qa-bot/issues
 Keywords: rag,sensor,qa,langchain,deepseek,faiss
 Classifier: Programming Language :: Python :: 3
 Classifier: Programming Language :: Python :: 3.10
 Classifier: Programming Language :: Python :: 3.11
-Classifier: Programming Language :: Python :: 3.12
 Classifier: License :: OSI Approved :: MIT License
 Classifier: Operating System :: OS Independent
-Classifier: Topic :: Scientific/Engineering :: Artificial Intelligence
-Classifier: Intended Audience :: Developers
 Requires-Python: >=3.10
 Description-Content-Type: text/markdown
 Requires-Dist: langchain>=0.2.0

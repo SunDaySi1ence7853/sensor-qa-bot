@@ -16,6 +16,13 @@ src/logging_config.py
 src/prompt.py
 src/rag_chat.py
 src/vectorstore.py
+src/anti3d-overlay-main/config.py
+src/anti3d-overlay-main/control_panel.py
+src/anti3d-overlay-main/hotkey_manager.py
+src/anti3d-overlay-main/main.py
+src/anti3d-overlay-main/overlay_window.py
+src/anti3d-overlay-main/process_monitor.py
+tests/test_config.py
 tests/test_embeddings.py
 tests/test_llm.py
 tests/test_rag_chat.py
