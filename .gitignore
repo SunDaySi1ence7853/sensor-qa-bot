@@ -1,6 +1,25 @@
-venv/
-.env
+# --- Python ---
 __pycache__/
-*.pyc
-.vscode/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+build/
+dist/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# --- 虚拟环境 ---
+venv/
+.venv/
+env/
+
+# --- 项目运行时产物 ---
+logs/
 vectorstore/
+.env
+
+# --- IDE ---
+.vscode/
+.idea/
