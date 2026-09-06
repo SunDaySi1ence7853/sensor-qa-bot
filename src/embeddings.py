@@ -18,6 +18,7 @@ from langchain_openai import OpenAIEmbeddings
 
 from src.config import get_config
 
+from langchain_core.embeddings import Embeddings
 
 def _normalize_base_url(url: str) -> str:
     """
@@ -43,31 +44,37 @@ def _normalize_base_url(url: str) -> str:
 
 
 @lru_cache(maxsize=1)
-def get_embeddings():
+def get_embeddings() -> Embeddings:
     """
-    根据配置返回 embedding 实例。
-    结果被缓存，避免重复加载模型。
+    根据配置返回对应的 Embeddings 实例。
+    使用 lru_cache 确保单例。
     """
     cfg = get_config()
 
     if cfg.embedding_provider == "local":
-        return HuggingFaceEmbeddings(
-            model_name=cfg.local_embedding_model,
-            encode_kwargs={"normalize_embeddings": True},
-        )
+        try:
+            return HuggingFaceEmbeddings(
+                model_name=cfg.local_embedding_model,
+                model_kwargs={"device": "cpu"},
+            )
+        except Exception as e:
+            raise RuntimeError(
+                f"本地模型 {cfg.local_embedding_model} 加载失败。"
+                f"请确认模型已下载到缓存，或手动下载到 models/ 目录。\n"
+                f"原始错误：{e}"
+            ) from e
 
     if cfg.embedding_provider == "deepseek":
-        if not cfg.api_key:
-            raise ValueError(
-                "使用 deepseek embedding 需要设置 DEEPSEEK_API_KEY"
+        if not cfg.deepseek_api_key:  # ← 这里改了
+            raise RuntimeError(
+                "使用 DeepSeek embedding 需要设置 DEEPSEEK_API_KEY 环境变量"
             )
         return OpenAIEmbeddings(
             model=cfg.deepseek_embedding_model,
-            api_key=cfg.api_key,
-            base_url=_normalize_base_url(cfg.base_url),
+            openai_api_key=cfg.deepseek_api_key,
+            openai_api_base=_normalize_base_url(cfg.deepseek_base_url),
         )
 
     raise ValueError(
-        f"不支持的 embedding_provider: {cfg.embedding_provider}，"
-        f"可选值为 'local' 或 'deepseek'"
+        f"未知的 embedding_provider: {cfg.embedding_provider}"
     )

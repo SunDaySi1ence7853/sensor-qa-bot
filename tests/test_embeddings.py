@@ -15,11 +15,11 @@ import pytest
 def _make_cfg(**overrides):
     """构造一个假的 config 对象，字段和真实 Config 对齐。"""
     class FakeCfg:
-        deepseek_api_key = "sk-test"
-        deepseek_base_url = "https://api.deepseek.com"
-        deepseek_embedding_model = "deepseek-embedding"
-        embedding_provider = "local"
-        local_embedding_model = "shibing624/text2vec-base-chinese"
+     embedding_provider = "deepseek"
+    deepseek_api_key = "sk-fake"  # ← 改这里
+    deepseek_base_url = "https://api.deepseek.com"
+    deepseek_embedding_model = "deepseek-embedding-v1"
+    local_embedding_model = "fake-model"
 
     cfg = FakeCfg()
     for k, v in overrides.items():

@@ -45,3 +45,11 @@ def clean_env(monkeypatch):
                            "RETRIEVE_", "CHUNK_", "MEMORY_")):
             monkeypatch.delenv(key, raising=False)
     return monkeypatch
+@pytest.fixture
+def valid_env(clean_env):
+    """
+    预设一套合法的环境变量，供不想从零设置的测试用。
+    """
+    clean_env.setenv("DEEPSEEK_API_KEY", "sk-test-key")
+    clean_env.setenv("EMBEDDING_PROVIDER", "local")
+    return clean_env
