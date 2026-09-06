@@ -48,8 +48,8 @@ Homepage = "https://github.com/SunDaySi1ence7853/sensor-qa-bot"
 Repository = "https://github.com/SunDaySi1ence7853/sensor-qa-bot"
 
 [project.scripts]
-sensor-qa       = "src.cli:app_chat"
-sensor-qa-build = "src.cli:app_build"
+sensor-qa       = "src.cli:main_chat"
+sensor-qa-build = "src.cli:main_build"
 
 [tool.setuptools.packages.find]
 where = ["."]

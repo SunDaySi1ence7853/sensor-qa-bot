@@ -251,3 +251,16 @@ def build_main(
 
 if __name__ == "__main__":
     app_chat()
+
+    def main_chat() -> None:
+     """sensor-qa 命令入口。"""
+    app_chat()
+
+
+def main_build() -> None:
+    """sensor-qa-build 命令入口。"""
+    app_build()
+
+
+if __name__ == "__main__":
+    app_chat()
