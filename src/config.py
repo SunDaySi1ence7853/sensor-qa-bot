@@ -3,6 +3,7 @@
 """
 
 import os
+import re
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -30,6 +31,19 @@ class Config:
     chunk_overlap: int
     vectorstore_dir: str
     memory_turns: int
+
+
+def _normalize_base_url(url: str) -> str:
+    """
+    末尾规范化为 /v1，防止 LangChain 重复拼接。
+
+    https://api.deepseek.com        -> https://api.deepseek.com/v1
+    https://api.deepseek.com/v1     -> https://api.deepseek.com/v1
+    https://api.deepseek.com/v1/v1  -> https://api.deepseek.com/v1
+    """
+    url = url.strip().rstrip("/")
+    url = re.sub(r"(/v1)+$", "", url)
+    return url + "/v1"
 
 
 def _parse_int(key: str, default: int, min_val: int = 1, max_val: int | None = None) -> int:
@@ -84,7 +98,10 @@ def get_config() -> Config:
     cfg = Config(
         deepseek_api_key=os.getenv("DEEPSEEK_API_KEY", ""),
         deepseek_model=os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
-        deepseek_base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
+        # 统一在配置层规范化，llm.py 和 embeddings.py 直接用，无需各自处理
+        deepseek_base_url=_normalize_base_url(
+            os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+        ),
         input_price_per_1m=_parse_float("DEEPSEEK_INPUT_PRICE_PER_1M", 1.00),
         output_price_per_1m=_parse_float("DEEPSEEK_OUTPUT_PRICE_PER_1M", 2.00),
         embedding_provider=embedding_provider,
@@ -101,7 +118,6 @@ def get_config() -> Config:
         memory_turns=_parse_int("MEMORY_TURNS", 6, min_val=1, max_val=100),
     )
 
-    # DEBUG 级：完整配置落文件，不打扰终端
     logger.debug(
         "配置加载完成 | model=%s | provider=%s | top_k=%d | memory_turns=%d",
         cfg.deepseek_model,
@@ -119,6 +135,6 @@ def require_api_key() -> str:
         logger.error("DEEPSEEK_API_KEY 缺失")
         raise RuntimeError(
             "没有读取到 DEEPSEEK_API_KEY。\n"
-            "请检查项目根目录下的 .env 文件。"
+            "请检查项目根目录下的 .env 文件是否存在且格式正确。"
         )
     return cfg.deepseek_api_key

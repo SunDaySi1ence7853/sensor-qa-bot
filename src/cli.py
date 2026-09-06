@@ -249,11 +249,8 @@ def build_main(
         sys.exit(1)
 
 
-if __name__ == "__main__":
-    app_chat()
-
-    def main_chat() -> None:
-     """sensor-qa 命令入口。"""
+def main_chat() -> None:
+    """sensor-qa 命令入口（pyproject.toml 的 entry point 会调用这个）。"""
     app_chat()
 
 

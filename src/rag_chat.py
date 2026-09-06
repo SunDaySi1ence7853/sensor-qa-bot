@@ -94,16 +94,19 @@ class SensorRAGChat:
         )
 
         collected: List[str] = []
-        last_chunk = None
+        aggregated = None
+        # AIMessageChunk 支持 + 运算，累加后 usage_metadata 才完整
+        # 不这么做会踩坑：DeepSeek 的 usage 只出现在流末尾的独立 chunk 上，
+        # 单独取 "last chunk" 时前面的文本 chunk 会覆盖掉 usage
         for chunk in self.llm_stream.stream(messages):
-            last_chunk = chunk
+            aggregated = chunk if aggregated is None else aggregated + chunk
             text = chunk.content or ""
             if text:
                 collected.append(text)
                 yield StreamEvent(delta=text, done=False)
 
         full_content = "".join(collected)
-        usage = self._extract_usage(last_chunk)
+        usage = self._extract_usage(aggregated)
         self._append_history(question, full_content)
 
         yield StreamEvent(
@@ -143,48 +146,75 @@ class SensorRAGChat:
         return seen
 
     def _extract_usage(self, response) -> TokenUsage:
+        
         """
         从 LLM 响应提取 token 用量。
 
-        防御性设计：如果 usage_metadata 缺失或字段不完整，
-        降级返回全零的 TokenUsage，而不是抛异常中断主流程。
+        防御性设计：
+        1. 优先从 usage_metadata 取（LangChain 0.2+ 标准字段）
+        2. 回退到 response_metadata["token_usage"]（OpenAI 兼容路径，DeepSeek 走这里）
+        3. 临时 debug 打印，方便排查真实字段位置
+        4. 都取不到时降级返回全零，而不是抛异常中断主流程
 
         如果不这么改：
-        用户换用不返回 usage_metadata 的模型（例如本地部署的 Ollama、
-        某些第三方兼容 API），每次 ask() 都会在统计步骤崩溃，
-        即使 LLM 已经生成了答案也无法返回给用户。
+        用户换用不返回任何 usage 的模型（例如本地 Ollama、某些第三方 API），
+        每次 ask() 都会在统计步骤崩溃，即使 LLM 已经生成了答案也无法返回。
         """
         cfg = get_config()
 
         if response is None:
             return TokenUsage()
 
+
+        # 路径 1: usage_metadata（LangChain 新标准）
         meta = getattr(response, "usage_metadata", None)
-        if not meta:
-            return TokenUsage()
+        if meta:
+            try:
+                prompt_tokens = int(meta.get("input_tokens", 0) or 0)
+                completion_tokens = int(meta.get("output_tokens", 0) or 0)
+                total_tokens = int(
+                    meta.get("total_tokens", prompt_tokens + completion_tokens) or 0
+                )
+                if prompt_tokens or completion_tokens:
+                    cost = (
+                        prompt_tokens / 1_000_000 * cfg.input_price_per_1m
+                        + completion_tokens / 1_000_000 * cfg.output_price_per_1m
+                    )
+                    return TokenUsage(
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens,
+                        total_tokens=total_tokens,
+                        estimated_cost_cny=cost,
+                    )
+            except (AttributeError, TypeError, ValueError, KeyError):
+                pass  # 继续尝试路径 2
 
-        # meta 可能是 dict，也可能是对象；统一按 dict 读取
-        try:
-            prompt_tokens = int(meta.get("input_tokens", 0) or 0)
-            completion_tokens = int(meta.get("output_tokens", 0) or 0)
-            total_tokens = int(
-                meta.get("total_tokens", prompt_tokens + completion_tokens) or 0
-            )
-        except (AttributeError, TypeError, ValueError):
-            # meta 结构异常时也降级为全零，不影响业务
-            return TokenUsage()
+        # 路径 2: response_metadata["token_usage"]（OpenAI 兼容，DeepSeek 走这里）
+        resp_meta = getattr(response, "response_metadata", None)
+        if resp_meta and isinstance(resp_meta, dict):
+            token_usage = resp_meta.get("token_usage")
+            if token_usage:
+                try:
+                    prompt_tokens = int(token_usage.get("prompt_tokens", 0) or 0)
+                    completion_tokens = int(token_usage.get("completion_tokens", 0) or 0)
+                    total_tokens = int(
+                        token_usage.get("total_tokens", prompt_tokens + completion_tokens) or 0
+                    )
+                    cost = (
+                        prompt_tokens / 1_000_000 * cfg.input_price_per_1m
+                        + completion_tokens / 1_000_000 * cfg.output_price_per_1m
+                    )
+                    return TokenUsage(
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens,
+                        total_tokens=total_tokens,
+                        estimated_cost_cny=cost,
+                    )
+                except (AttributeError, TypeError, ValueError, KeyError):
+                    pass
 
-        cost = (
-            prompt_tokens / 1_000_000 * cfg.input_price_per_1m
-            + completion_tokens / 1_000_000 * cfg.output_price_per_1m
-        )
-
-        return TokenUsage(
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-            total_tokens=total_tokens,
-            estimated_cost_cny=cost,
-        )
+        # 路径 3: 降级为全零
+        return TokenUsage()
 
     def _append_history(self, question: str, answer: str) -> None:
         self.history.append(HumanMessage(content=question))
