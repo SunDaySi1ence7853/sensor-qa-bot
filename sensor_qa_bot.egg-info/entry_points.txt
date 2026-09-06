@@ -1,3 +1,0 @@
-[console_scripts]
-sensor-qa = src.cli:app_chat
-sensor-qa-build = src.cli:app_build
