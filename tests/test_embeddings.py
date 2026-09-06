@@ -1,9 +1,8 @@
 """
 embeddings.py 单元测试。
 
-关键修正：
-- 全部 patch src.embeddings.XXX（而不是原库路径），
-  因为 embeddings.py 顶层已经用 from ... import XXX 把名字绑进了自己模块。
+关键：全部 patch src.embeddings.XXX（而不是原库路径），
+因为 embeddings.py 顶层已经用 from ... import XXX 把名字绑进了自己模块。
 """
 
 from __future__ import annotations
@@ -11,15 +10,14 @@ from __future__ import annotations
 import pytest
 
 
-# --------- 帮助函数 ---------
 def _make_cfg(**overrides):
     """构造一个假的 config 对象，字段和真实 Config 对齐。"""
     class FakeCfg:
-     embedding_provider = "deepseek"
-    deepseek_api_key = "sk-fake"  # ← 改这里
-    deepseek_base_url = "https://api.deepseek.com"
-    deepseek_embedding_model = "deepseek-embedding-v1"
-    local_embedding_model = "fake-model"
+        embedding_provider = "local"
+        deepseek_api_key = "sk-fake"
+        deepseek_base_url = "https://api.deepseek.com"
+        deepseek_embedding_model = "deepseek-embedding-v1"
+        local_embedding_model = "shibing624/text2vec-base-chinese"
 
     cfg = FakeCfg()
     for k, v in overrides.items():
@@ -115,7 +113,7 @@ def test_deepseek_creates_openai_embeddings(monkeypatch):
 
     result = emb_mod.get_embeddings()
     assert isinstance(result, FakeOpenAIEmb)
-    assert captured["api_key"] == "sk-test"
+    assert captured["api_key"] == "sk-fake"
     # 关键断言：畸形 URL 被 _normalize_base_url 修正
     assert captured["base_url"] == "https://api.deepseek.com/v1"
 

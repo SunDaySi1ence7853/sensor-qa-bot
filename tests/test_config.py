@@ -31,10 +31,9 @@ def test_normal_config_loads(clean_env):
 def test_missing_api_key_does_not_raise_on_get_config(clean_env):
     """API key 缺失时 get_config() 不报错。"""
     clean_env.setenv("EMBEDDING_PROVIDER", "local")
-    m = _reload_config(clean_env)
+    m = _reload_config()
     cfg = m.get_config()
     assert cfg.deepseek_api_key == ""
-
 
 
 def test_default_embedding_provider_is_local(clean_env):
@@ -47,8 +46,8 @@ def test_default_embedding_provider_is_local(clean_env):
 def test_illegal_embedding_provider_raises(clean_env):
     clean_env.setenv("DEEPSEEK_API_KEY", "sk-test")
     clean_env.setenv("EMBEDDING_PROVIDER", "wtf")
-    m = _reload_config(clean_env)
-    with pytest.raises(ValueError, match="EMBEDDING_PROVIDER"):  # 大写
+    m = _reload_config()
+    with pytest.raises(ValueError, match="EMBEDDING_PROVIDER"):
         m.get_config()
 
 
@@ -65,8 +64,8 @@ def test_price_zero_is_allowed(clean_env):
 def test_negative_input_price_raises(clean_env):
     clean_env.setenv("DEEPSEEK_API_KEY", "sk-test")
     clean_env.setenv("DEEPSEEK_INPUT_PRICE_PER_1M", "-1.0")
-    m = _reload_config(clean_env)
-    with pytest.raises(ValueError, match="DEEPSEEK_INPUT_PRICE_PER_1M"):  # 用字段名
+    m = _reload_config()
+    with pytest.raises(ValueError, match="DEEPSEEK_INPUT_PRICE_PER_1M"):
         m.get_config()
 
 
