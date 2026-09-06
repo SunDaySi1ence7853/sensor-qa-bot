@@ -47,6 +47,14 @@ class FakeMessage:
         self.content = content
         self.usage_metadata = usage_metadata
 
+    def __add__(self, other):
+        if not isinstance(other, FakeMessage):
+            return NotImplemented
+        new_content = (self.content or "") + (other.content or "")
+        # usage 累加，以非空的一方为准（真实场景中 usage 往往在最后一个 chunk）
+        new_meta = other.usage_metadata if other.usage_metadata else self.usage_metadata
+        return FakeMessage(new_content, new_meta)
+
 
 class FakeLLM:
     def __init__(self, response: FakeMessage):

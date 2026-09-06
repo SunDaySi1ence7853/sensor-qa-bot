@@ -49,14 +49,18 @@ def build_vectorstore(
         shutil.rmtree(vectorstore_dir)
 
     # 加载文档
-    loader = DirectoryLoader(
-        str(source_dir),
-        glob="**/*.{md,txt}",
-        loader_cls=TextLoader,
-        loader_kwargs={"encoding": "utf-8"},
-        show_progress=True,
-    )
-    docs = loader.load()
+    # 注意：Python 原生 glob 不支持 {md,txt} 花括号语法，需分别加载后合并
+    docs = []
+    for pattern in ["**/*.md", "**/*.txt"]:
+        loader = DirectoryLoader(
+            str(source_dir),
+            glob=pattern,
+            loader_cls=TextLoader,
+            loader_kwargs={"encoding": "utf-8"},
+            show_progress=True,
+        )
+        docs.extend(loader.load())
+
     if not docs:
         raise ValueError(f"目录 {source_dir} 中未找到任何 .md / .txt 文件")
 
