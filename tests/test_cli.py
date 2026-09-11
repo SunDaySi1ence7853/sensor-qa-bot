@@ -1,13 +1,15 @@
 """
 tests/test_cli.py
 
-CLI 入口层测试（任务1，4 个必测场景）。
+CLI 入口层测试（任务1，6 个必测场景）。
 
 覆盖分支：
   - 缺少 DEEPSEEK_API_KEY  → exit 2
   - EMBEDDING_PROVIDER 非法 → exit 2
   - --help                 → exit 0
   - -q 单次提问（mock RAG）  → exit 0，输出 mock 内容
+  - sensor-qa-build 源目录不存在 → exit 2
+  - sensor-qa 向量库未就绪 FileNotFoundError → exit 3
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from typer.testing import CliRunner
 
-from src.cli import app_chat
+from src.cli import app_chat, app_build
 
 runner = CliRunner()
 
@@ -71,8 +73,9 @@ def test_single_question_with_mock_rag(clean_env):
     """
     -q 单次提问：mock 掉 SensorRAGChat，验证 exit 0 且输出包含 mock 答案。
 
-    patch 路径是 src.cli.SensorRAGChat（延迟导入在函数体内），
-    不是 src.rag_chat.SensorRAGChat。
+    patch 铁律：“被测代码执行时，名字从哪取就 patch 哪”：
+    因为 cli.py 在 chat_main 函数体内延迟导入（from src.rag_chat import SensorRAGChat），
+    每次执行都重新从 rag_chat 模块取名，所以必须 patch 源头 src.rag_chat.SensorRAGChat 才能拦得住。
     """
     clean_env.setenv("DEEPSEEK_API_KEY", "sk-test-key")
     clean_env.setenv("EMBEDDING_PROVIDER", "local")
@@ -100,8 +103,41 @@ def test_single_question_with_mock_rag(clean_env):
     mock_chat_instance = MagicMock()
     mock_chat_instance.ask_stream.side_effect = mock_ask_stream
 
+    # 严格按照铁律，patch 延迟导入的源头模块
     with patch("src.rag_chat.SensorRAGChat", return_value=mock_chat_instance):
         result = runner.invoke(app_chat, ["-q", "DHT22的温度范围是多少"])
 
     assert result.exit_code == 0, f"非预期退出码，输出：\n{result.output}"
     assert "DHT22" in result.output or "-40" in result.output or "80" in result.output
+
+
+# ============================================================
+# 场景 5：sensor-qa-build 源目录不存在 → exit 2
+# ============================================================
+def test_build_nonexistent_source_dir_exits_with_code_2(clean_env):
+    """sensor-qa-build 若源目录不存在，应退出并提示 exit 2。"""
+    clean_env.setenv("DEEPSEEK_API_KEY", "sk-test-key")
+    clean_env.setenv("EMBEDDING_PROVIDER", "local")
+
+    # 传入一个绝对不存在的目录
+    result = runner.invoke(app_build, ["-s", "non_existent_dir_xyz"])
+
+    assert result.exit_code == 2
+    assert "源文档目录不存在" in result.output
+
+
+# ============================================================
+# 场景 6：向量库未就绪 FileNotFoundError → exit 3
+# ============================================================
+def test_vectorstore_not_ready_exits_with_code_3(clean_env):
+    """SensorRAGChat 初始化抛出 FileNotFoundError 时，应 exit 3 并提示构建。"""
+    clean_env.setenv("DEEPSEEK_API_KEY", "sk-test-key")
+    clean_env.setenv("EMBEDDING_PROVIDER", "local")
+
+    # 模拟初始化时找不到向量库文件
+    with patch("src.rag_chat.SensorRAGChat", side_effect=FileNotFoundError("Vector store not found")):
+        result = runner.invoke(app_chat, ["-q", "随便问一句"])
+
+    assert result.exit_code == 3
+    assert "向量库未就绪" in result.output
+    assert "sensor-qa-build" in result.output
