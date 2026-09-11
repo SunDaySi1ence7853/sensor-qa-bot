@@ -31,6 +31,7 @@ class Config:
     chunk_overlap: int
     vectorstore_dir: str
     memory_turns: int
+    sensor_thresholds: dict  # 新增：传感器阈值配置
 
 
 def _normalize_base_url(url: str) -> str:
@@ -95,6 +96,20 @@ def get_config() -> Config:
             f"EMBEDDING_PROVIDER 只能是 local 或 deepseek，当前值：{embedding_provider}"
         )
 
+    import json
+    default_thresholds = {
+        "temperature": {"min": 10.0, "max": 35.0},
+        "humidity": {"min": 20.0, "max": 80.0},
+        "vibration": {"min": 0.0, "max": 5.0}
+    }
+    thresholds_env = os.getenv("SENSOR_THRESHOLDS")
+    if thresholds_env:
+        try:
+            default_thresholds.update(json.loads(thresholds_env))
+        except json.JSONDecodeError:
+            logger.warning("SENSOR_THRESHOLDS 格式错误，使用默认值")
+
+
     cfg = Config(
         deepseek_api_key=os.getenv("DEEPSEEK_API_KEY", ""),
         deepseek_model=os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
@@ -116,6 +131,7 @@ def get_config() -> Config:
         chunk_overlap=chunk_overlap,
         vectorstore_dir=os.getenv("VECTORSTORE_DIR", "vectorstore"),
         memory_turns=_parse_int("MEMORY_TURNS", 6, min_val=1, max_val=100),
+        sensor_thresholds=default_thresholds,  # 新增
     )
 
     logger.debug(
@@ -125,7 +141,6 @@ def get_config() -> Config:
         cfg.retrieve_top_k,
         cfg.memory_turns,
     )
-
     return cfg
 
 
