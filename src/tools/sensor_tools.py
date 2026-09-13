@@ -43,18 +43,15 @@ def get_sensor_data(sensor_type: str) -> dict:
         return {"error": f"不支持的传感器类型: {sensor_type}。支持: {valid_types}"}
     
     # 模拟数据：量程合理 + 正弦波趋势 + 随机噪声
-    # 利用当前秒数作为相位，模拟连续变化
-    t = datetime.now().second / 60.0
+    # 利用当前分钟数作为相位，模拟连续变化
+    t = datetime.now().minute / 60.0
     noise = random.uniform(-0.5, 0.5)
     
     if sensor_type.lower() == "temperature":
-        # 温度范围 20-28°C
         value = 24.0 + 4.0 * math.sin(2 * math.pi * t) + noise
     elif sensor_type.lower() == "humidity":
-        # 湿度范围 45-55%
         value = 50.0 + 5.0 * math.sin(2 * math.pi * t) + noise
     else: # vibration
-        # 振动范围 0.5-2.0g
         value = 1.25 + 0.75 * math.sin(2 * math.pi * t) + noise
     
     return {
@@ -80,8 +77,29 @@ def query_history(sensor_type: str, hours: int) -> dict:
     if not isinstance(hours, int) or hours < 1 or hours > 24:
         return {"error": "hours 参数必须为 1-24 之间的整数"}
     
-    # 模拟历史数据统计
-    data = [get_sensor_data.invoke({"sensor_type": sensor_type})["value"] for _ in range(hours)]
+    valid_types = ["temperature", "humidity", "vibration"]
+    if sensor_type.lower() not in valid_types:
+        return {"error": f"不支持的传感器类型: {sensor_type}"}
+    
+    # 修复假历史：按小时回溯生成数据
+    # 使用当前小时作为基准，每往前推 1 小时，正弦波相位偏移 1/24（模拟昼夜周期）
+    now = datetime.now()
+    base_hour = now.hour + now.minute / 60.0
+    data = []
+    
+    for i in range(hours):
+        # 第 i 个数据点代表 i 小时前，相位偏移为 i/24
+        phase = (base_hour - i) / 24.0
+        noise = random.uniform(-0.5, 0.5)
+        
+        if sensor_type.lower() == "temperature":
+            val = 24.0 + 4.0 * math.sin(2 * math.pi * phase) + noise
+        elif sensor_type.lower() == "humidity":
+            val = 50.0 + 5.0 * math.sin(2 * math.pi * phase) + noise
+        else: # vibration
+            val = 1.25 + 0.75 * math.sin(2 * math.pi * phase) + noise
+            
+        data.append(round(val, 2))
     
     cfg = get_config()
     threshold = cfg.sensor_thresholds.get(sensor_type.lower(), {})
