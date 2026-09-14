@@ -96,7 +96,7 @@ def test_generate_report_all_normal():
         FindingItem(sensor_type="temperature", value=25.0, status="正常"),
         FindingItem(sensor_type="humidity", value=50.0, status="正常")
     ]
-    result = generate_report.invoke({"findings": [f.dict() for f in findings]})
+    result = generate_report.invoke({"findings": [f.model_dump() for f in findings]})
     assert result["normal_count"] == 2
     assert result["abnormal_count"] == 0
 
@@ -105,7 +105,7 @@ def test_generate_report_with_abnormal():
     findings = [
         FindingItem(sensor_type="vibration", value=6.0, status="异常")
     ]
-    result = generate_report.invoke({"findings": [f.dict() for f in findings]})
+    result = generate_report.invoke({"findings": [f.model_dump() for f in findings]})
     assert result["abnormal_count"] == 1
     assert len(result["suggestions"]) > 0
 

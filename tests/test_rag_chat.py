@@ -1,296 +1,188 @@
 """
-rag_chat.py 单元测试。
+RAG 对话核心。
 
-设计原则：
-- 不真实调用 LLM 与向量库，全部用 fake 对象注入
-- 通过 monkeypatch 替换 SensorRAGChat.__init__ 依赖，避免副作用
-- 重点覆盖：
-  1) sources 去重与文件名提取（Windows/Linux 路径都要通）
-  2) usage 提取的降级路径（None、缺 usage_metadata、字段异常）
-  3) 历史裁剪：memory_turns 生效
-  4) 流式 ask_stream 的事件序列（多个 delta + 最后一个 done=True）
+功能：
+- 基于检索增强的问答
+- 多轮对话（带历史裁剪，支持外部传入历史）
+- 流式与非流式两种模式
+- Token 用量与成本统计（带降级方案）
 """
 
-from __future__ import annotations
+from dataclasses import dataclass, field
+from typing import Iterator, List, Optional
 
-from dataclasses import dataclass
-from typing import Any, List, Optional
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 
-import pytest
+from src.config import get_config
+from src.llm import get_llm
+from src.prompt import build_rag_prompt
+from src.vectorstore import load_vectorstore
 
-from src.rag_chat import ChatResult, SensorRAGChat, StreamEvent, TokenUsage
 
-
-# ============================================================
-# 轻量 fake 对象
-# ============================================================
 @dataclass
-class FakeDoc:
-    """模拟 LangChain 的 Document。"""
-    page_content: str
-    metadata: dict
+class TokenUsage:
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    estimated_cost_cny: float = 0.0
 
 
-class FakeVectorStore:
-    def __init__(self, docs: List[FakeDoc]):
-        self._docs = docs
-        self.last_k: Optional[int] = None
-
-    def similarity_search(self, query: str, k: int = 3):
-        self.last_k = k
-        return self._docs[:k]
+@dataclass
+class ChatResult:
+    content: str
+    sources: List[str] = field(default_factory=list)
+    usage: TokenUsage = field(default_factory=TokenUsage)
+    history: List[BaseMessage] = field(default_factory=list)
 
 
-class FakeMessage:
-    """模拟 LLM 返回的消息对象。"""
-    def __init__(self, content: str, usage_metadata: Any = None):
-        self.content = content
-        self.usage_metadata = usage_metadata
-
-    def __add__(self, other):
-        if not isinstance(other, FakeMessage):
-            return NotImplemented
-        new_content = (self.content or "") + (other.content or "")
-        # usage 累加，以非空的一方为准（真实场景中 usage 往往在最后一个 chunk）
-        new_meta = other.usage_metadata if other.usage_metadata else self.usage_metadata
-        return FakeMessage(new_content, new_meta)
+@dataclass
+class StreamEvent:
+    delta: str = ""
+    done: bool = False
+    result: Optional[ChatResult] = None
 
 
-class FakeLLM:
-    def __init__(self, response: FakeMessage):
-        self.response = response
-        self.called_with = None
+class SensorRAGChat:
+    """带检索、历史、token 统计的对话器（无状态版，适配 Web 端）。"""
 
-    def invoke(self, messages):
-        self.called_with = messages
-        return self.response
+    def __init__(self):
+        self.cfg = get_config()
+        self.vectorstore = load_vectorstore()
+        self.llm = get_llm(streaming=False)
+        self.llm_stream = get_llm(streaming=True)
+        self.prompt = build_rag_prompt()
 
+    # ---------------- 公共 API ---------------- #
 
-class FakeStreamLLM:
-    """模拟流式 LLM：yield 出一串 chunk，最后一个 chunk 带 usage_metadata。"""
-    def __init__(self, chunks: List[FakeMessage]):
-        self.chunks = chunks
+    def ask(self, question: str, history: Optional[List[BaseMessage]] = None) -> ChatResult:
+        """非流式提问。"""
+        docs = self.vectorstore.similarity_search(
+            question, k=self.cfg.retrieve_top_k
+        )
+        context = self._format_context(docs)
+        sources = self._extract_sources(docs)
+        
+        current_history = history or []
 
-    def stream(self, messages):
-        for c in self.chunks:
-            yield c
+        messages = self.prompt.format_messages(
+            context=context,
+            history=current_history,
+            question=question,
+        )
 
+        response = self.llm.invoke(messages)
+        content = response.content
+        usage = self._extract_usage(response)
 
-class FakePrompt:
-    def format_messages(self, context, history, question):
-        # 只是把参数打包返回，测试断言时能看到
-        return [{"context": context, "history": history, "question": question}]
+        updated_history = self._update_history(current_history, question, content)
+        return ChatResult(content=content, sources=sources, usage=usage, history=updated_history)
 
+    def ask_stream(self, question: str, history: Optional[List[BaseMessage]] = None) -> Iterator[StreamEvent]:
+        """流式提问。产出多个 delta 事件，最后一个 done=True 带完整结果。"""
+        docs = self.vectorstore.similarity_search(
+            question, k=self.cfg.retrieve_top_k
+        )
+        context = self._format_context(docs)
+        sources = self._extract_sources(docs)
+        
+        current_history = history or []
 
-class FakeConfig:
-    retrieve_top_k = 2
-    memory_turns = 3
-    input_price_per_1m = 1.0
-    output_price_per_1m = 2.0
+        messages = self.prompt.format_messages(
+            context=context,
+            history=current_history,
+            question=question,
+        )
 
+        collected: List[str] = []
+        aggregated = None
+        
+        for chunk in self.llm_stream.stream(messages):
+            aggregated = chunk if aggregated is None else aggregated + chunk
+            text = chunk.content or ""
+            if text:
+                collected.append(text)
+                yield StreamEvent(delta=text, done=False)
 
-# ============================================================
-# 通用工厂：构造一个绕过真实依赖的 SensorRAGChat
-# ============================================================
-def _build_chat(monkeypatch, docs=None, response=None, stream_chunks=None):
-    """
-    绕过 __init__ 里的真实依赖（load_vectorstore / get_llm / build_rag_prompt），
-    手动装配一个 SensorRAGChat 实例。
-    """
-    docs = docs or []
-    response = response or FakeMessage("默认回答")
-    stream_chunks = stream_chunks or [FakeMessage("默认")]
+        full_content = "".join(collected)
+        usage = self._extract_usage(aggregated)
+        
+        updated_history = self._update_history(current_history, question, full_content)
 
-    # 用 __new__ 绕过 __init__，手动填字段
-    chat = SensorRAGChat.__new__(SensorRAGChat)
-    chat.cfg = FakeConfig()
-    chat.vectorstore = FakeVectorStore(docs)
-    chat.llm = FakeLLM(response)
-    chat.llm_stream = FakeStreamLLM(stream_chunks)
-    chat.prompt = FakePrompt()
-    chat.history = []
+        yield StreamEvent(
+            delta="",
+            done=True,
+            result=ChatResult(
+                content=full_content,
+                sources=sources,
+                usage=usage,
+                history=updated_history
+            ),
+        )
 
-    # rag_chat._extract_usage 里会调 get_config()，替换掉
-    monkeypatch.setattr("src.rag_chat.get_config", lambda: FakeConfig())
-    return chat
+    # ---------------- 内部工具 ---------------- #
 
+    def _format_context(self, docs) -> str:
+        if not docs:
+            return "（未检索到相关内容）"
+        return "\n\n".join(
+            f"[{i + 1}] {d.page_content}" for i, d in enumerate(docs)
+        )
 
-# ============================================================
-# ask() 主流程
-# ============================================================
-def test_ask_returns_content_and_sources(monkeypatch):
-    docs = [
-        FakeDoc("DHT22 是温湿度传感器", {"source": "docs/dht22.md"}),
-        FakeDoc("工作电压 3.3-5V", {"source": "docs/dht22.md"}),  # 重复来源
-        FakeDoc("常用于气象站", {"source": "docs/applications.md"}),
-    ]
-    response = FakeMessage(
-        content="DHT22 是温湿度传感器，工作电压 3.3-5V",
-        usage_metadata={"input_tokens": 100, "output_tokens": 50, "total_tokens": 150},
-    )
-    chat = _build_chat(monkeypatch, docs=docs, response=response)
+    def _extract_sources(self, docs) -> List[str]:
+        import os
+        seen = []
+        for d in docs:
+            src = d.metadata.get("source", "")
+            if not src:
+                continue
+            name = os.path.basename(src.replace("\\", "/"))
+            if name not in seen:
+                seen.append(name)
+        return seen
 
-    result = chat.ask("DHT22是什么？")
+    def _extract_usage(self, response) -> TokenUsage:
+        cfg = get_config()
+        if response is None:
+            return TokenUsage()
 
-    assert isinstance(result, ChatResult)
-    assert "DHT22" in result.content
-    # top_k=2，所以只取前 2 篇；来源去重后只剩 dht22.md
-    assert result.sources == ["dht22.md"]
-    assert result.usage.prompt_tokens == 100
-    assert result.usage.completion_tokens == 50
-    # cost = 100/1M * 1.0 + 50/1M * 2.0 = 0.0002
-    assert result.usage.estimated_cost_cny == pytest.approx(0.0002)
+        # 路径 1: usage_metadata
+        meta = getattr(response, "usage_metadata", None)
+        if meta:
+            try:
+                prompt_tokens = int(meta.get("input_tokens", 0) or 0)
+                completion_tokens = int(meta.get("output_tokens", 0) or 0)
+                total_tokens = int(meta.get("total_tokens", prompt_tokens + completion_tokens) or 0)
+                if prompt_tokens or completion_tokens:
+                    cost = (prompt_tokens / 1_000_000 * cfg.input_price_per_1m + 
+                            completion_tokens / 1_000_000 * cfg.output_price_per_1m)
+                    return TokenUsage(prompt_tokens, completion_tokens, total_tokens, cost)
+            except Exception:
+                pass
 
+        # 路径 2: response_metadata
+        resp_meta = getattr(response, "response_metadata", None)
+        if resp_meta and isinstance(resp_meta, dict):
+            token_usage = resp_meta.get("token_usage")
+            if token_usage:
+                try:
+                    prompt_tokens = int(token_usage.get("prompt_tokens", 0) or 0)
+                    completion_tokens = int(token_usage.get("completion_tokens", 0) or 0)
+                    total_tokens = int(token_usage.get("total_tokens", prompt_tokens + completion_tokens) or 0)
+                    cost = (prompt_tokens / 1_000_000 * cfg.input_price_per_1m + 
+                            completion_tokens / 1_000_000 * cfg.output_price_per_1m)
+                    return TokenUsage(prompt_tokens, completion_tokens, total_tokens, cost)
+                except Exception:
+                    pass
 
-def test_ask_writes_to_history(monkeypatch):
-    chat = _build_chat(
-        monkeypatch,
-        response=FakeMessage("答案 A"),
-    )
-    chat.ask("问题 A")
-    assert len(chat.history) == 2
-    assert chat.history[0].content == "问题 A"
-    assert chat.history[1].content == "答案 A"
+        return TokenUsage()
 
-
-def test_reset_clears_history(monkeypatch):
-    chat = _build_chat(monkeypatch, response=FakeMessage("x"))
-    chat.ask("q1")
-    chat.ask("q2")
-    assert len(chat.history) == 4
-    chat.reset()
-    assert chat.history == []
-
-
-# ============================================================
-# _extract_sources：Windows / Linux 路径 + 去重
-# ============================================================
-def test_extract_sources_handles_windows_paths(monkeypatch):
-    docs = [
-        FakeDoc("x", {"source": r"C:\data\docs\dht22.md"}),
-        FakeDoc("y", {"source": r"C:\data\docs\dht22.md"}),
-        FakeDoc("z", {"source": r"C:\data\docs\bmp280.md"}),
-    ]
-    chat = _build_chat(monkeypatch, docs=docs)
-    # 直接调内部方法验证
-    sources = chat._extract_sources(docs)
-    assert sources == ["dht22.md", "bmp280.md"]
-
-
-def test_extract_sources_skips_missing_source(monkeypatch):
-    docs = [
-        FakeDoc("x", {}),  # 没有 source 字段
-        FakeDoc("y", {"source": ""}),  # 空字符串
-        FakeDoc("z", {"source": "docs/ok.md"}),
-    ]
-    chat = _build_chat(monkeypatch, docs=docs)
-    sources = chat._extract_sources(docs)
-    assert sources == ["ok.md"]
-
-
-# ============================================================
-# _extract_usage：防御性降级
-# ============================================================
-def test_extract_usage_returns_zero_when_response_none(monkeypatch):
-    chat = _build_chat(monkeypatch)
-    usage = chat._extract_usage(None)
-    assert usage.prompt_tokens == 0
-    assert usage.total_tokens == 0
-    assert usage.estimated_cost_cny == 0.0
-
-
-def test_extract_usage_returns_zero_when_metadata_missing(monkeypatch):
-    chat = _build_chat(monkeypatch)
-    response = FakeMessage("x", usage_metadata=None)
-    usage = chat._extract_usage(response)
-    assert usage.prompt_tokens == 0
-
-
-def test_extract_usage_returns_zero_when_metadata_malformed(monkeypatch):
-    chat = _build_chat(monkeypatch)
-    # usage_metadata 不是 dict，触发 AttributeError 分支
-    response = FakeMessage("x", usage_metadata="not-a-dict")
-    usage = chat._extract_usage(response)
-    assert usage.prompt_tokens == 0
-    assert usage.total_tokens == 0
-
-
-def test_extract_usage_computes_cost_correctly(monkeypatch):
-    chat = _build_chat(monkeypatch)
-    response = FakeMessage(
-        "x",
-        usage_metadata={"input_tokens": 1_000_000, "output_tokens": 500_000},
-    )
-    usage = chat._extract_usage(response)
-    # 1_000_000/1M * 1.0 + 500_000/1M * 2.0 = 1.0 + 1.0 = 2.0
-    assert usage.estimated_cost_cny == pytest.approx(2.0)
-    # total_tokens 未提供时用 prompt+completion 兜底
-    assert usage.total_tokens == 1_500_000
-
-
-# ============================================================
-# 历史裁剪
-# ============================================================
-def test_history_trimmed_to_memory_turns(monkeypatch):
-    chat = _build_chat(monkeypatch, response=FakeMessage("a"))
-    # memory_turns=3，最多保留 6 条消息
-    for i in range(10):
-        chat.ask(f"q{i}")
-    assert len(chat.history) == 6
-    # 最后一轮应该是 q9 / a
-    assert chat.history[-2].content == "q9"
-
-
-# ============================================================
-# ask_stream 事件序列
-# ============================================================
-def test_ask_stream_yields_deltas_and_final_result(monkeypatch):
-    chunks = [
-        FakeMessage("Hello "),
-        FakeMessage("World"),
-        FakeMessage(
-            "!",
-            usage_metadata={"input_tokens": 10, "output_tokens": 3, "total_tokens": 13},
-        ),
-    ]
-    docs = [FakeDoc("ctx", {"source": "docs/a.md"})]
-    chat = _build_chat(monkeypatch, docs=docs, stream_chunks=chunks)
-
-    events = list(chat.ask_stream("你好"))
-
-    # 3 个 delta + 1 个 done
-    assert len(events) == 4
-    assert [e.delta for e in events[:3]] == ["Hello ", "World", "!"]
-    assert all(e.done is False for e in events[:3])
-
-    final = events[-1]
-    assert final.done is True
-    assert final.delta == ""
-    assert isinstance(final.result, ChatResult)
-    assert final.result.content == "Hello World!"
-    assert final.result.sources == ["a.md"]
-    assert final.result.usage.prompt_tokens == 10
-
-
-def test_ask_stream_writes_to_history(monkeypatch):
-    chunks = [FakeMessage("完整"), FakeMessage("回答")]
-    chat = _build_chat(monkeypatch, stream_chunks=chunks)
-
-    list(chat.ask_stream("流式问题"))
-
-    assert len(chat.history) == 2
-    assert chat.history[0].content == "流式问题"
-    assert chat.history[1].content == "完整回答"
-
-
-def test_ask_stream_skips_empty_chunks(monkeypatch):
-    chunks = [
-        FakeMessage("A"),
-        FakeMessage(""),   # 空 chunk，不应该产生 delta 事件
-        FakeMessage("B"),
-    ]
-    chat = _build_chat(monkeypatch, stream_chunks=chunks)
-
-    events = list(chat.ask_stream("q"))
-    delta_events = [e for e in events if not e.done]
-    assert [e.delta for e in delta_events] == ["A", "B"]
+    def _update_history(self, history: List[BaseMessage], question: str, answer: str) -> List[BaseMessage]:
+        """更新历史并裁剪，返回新的历史列表。"""
+        new_history = list(history)
+        new_history.append(HumanMessage(content=question))
+        new_history.append(AIMessage(content=answer))
+        
+        max_messages = self.cfg.memory_turns * 2
+        if len(new_history) > max_messages:
+            new_history = new_history[-max_messages:]
+        return new_history

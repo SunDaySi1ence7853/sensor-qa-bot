@@ -194,6 +194,6 @@ def generate_report(findings: List[FindingItem]) -> dict:
         "total_items": len(findings),
         "normal_count": len(findings) - len(abnormal_items),
         "abnormal_count": len(abnormal_items),
-        "abnormal_details": [f.dict() for f in abnormal_items],
+        "abnormal_details": [f.model_dump() for f in abnormal_items],
         "suggestions": suggestions
     }

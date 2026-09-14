@@ -6,7 +6,7 @@ from functools import lru_cache
 
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
-SYSTEM_PROMPT = """你是“传感器问答助手 v0.2”，负责回答传感器技术问题。
+SYSTEM_PROMPT = """你是“传感器问答助手 v0.3”，负责回答传感器技术问题。
 
 严格遵守：
 1. 只能基于下面【检索到的资料】回答问题。
