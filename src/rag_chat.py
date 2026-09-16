@@ -4,6 +4,7 @@ RAG 对话核心。
 功能：
 - 基于检索增强的问答
 - 多轮对话（带历史裁剪，支持外部传入历史）
+- 查询重写（解决无主语追问的检索召回失败问题）
 - 流式与非流式两种模式
 - Token 用量与成本统计（带降级方案）
 """
@@ -56,14 +57,19 @@ class SensorRAGChat:
 
     def ask(self, question: str, history: Optional[List[BaseMessage]] = None) -> ChatResult:
         """非流式提问。"""
+        current_history = history or []
+        
+        # 1. 查询重写：解决无主语追问导致检索失败的问题
+        search_query = self._rewrite_query(question, current_history)
+        
+        # 2. 使用重写后的完整问题去检索
         docs = self.vectorstore.similarity_search(
-            question, k=self.cfg.retrieve_top_k
+            search_query, k=self.cfg.retrieve_top_k
         )
         context = self._format_context(docs)
         sources = self._extract_sources(docs)
-        
-        current_history = history or []
 
+        # 3. 构建 Prompt 时，依然使用原始 question，保持对话自然性
         messages = self.prompt.format_messages(
             context=context,
             history=current_history,
@@ -79,14 +85,19 @@ class SensorRAGChat:
 
     def ask_stream(self, question: str, history: Optional[List[BaseMessage]] = None) -> Iterator[StreamEvent]:
         """流式提问。产出多个 delta 事件，最后一个 done=True 带完整结果。"""
+        current_history = history or []
+        
+        # 1. 查询重写
+        search_query = self._rewrite_query(question, current_history)
+        
+        # 2. 检索
         docs = self.vectorstore.similarity_search(
-            question, k=self.cfg.retrieve_top_k
+            search_query, k=self.cfg.retrieve_top_k
         )
         context = self._format_context(docs)
         sources = self._extract_sources(docs)
-        
-        current_history = history or []
 
+        # 3. 构建 Prompt
         messages = self.prompt.format_messages(
             context=context,
             history=current_history,
@@ -120,6 +131,41 @@ class SensorRAGChat:
         )
 
     # ---------------- 内部工具 ---------------- #
+
+    def _rewrite_query(self, question: str, history: List[BaseMessage]) -> str:
+        """结合历史对话，将无主语追问改写为独立问题，提升向量检索召回率。"""
+        if not history:
+            return question
+            
+        # 提取最近一次用户提问
+        last_user_q = ""
+        for msg in reversed(history):
+            if isinstance(msg, HumanMessage):
+                last_user_q = msg.content
+                break
+                
+        if not last_user_q:
+            return question
+            
+        # 调用主 LLM 进行问题改写 (Prompt 尽量简短，降低延迟)
+        rewrite_prompt = (
+            f"你是一个查询改写助手。根据历史对话，将用户的【追问】改写为一个独立、完整的问题，"
+            f"使其脱离对话上下文也能被向量检索系统理解。只输出改写后的问题，不要包含任何其他解释。\n"
+            f"历史提问：{last_user_q}\n"
+            f"用户追问：{question}\n"
+            f"改写后的问题："
+        )
+        
+        try:
+            response = self.llm.invoke(rewrite_prompt)
+            rewritten = response.content.strip().strip('"').strip()
+            # 防止 LLM 乱说话，简单校验长度
+            if rewritten and len(rewritten) < 100:
+                return rewritten
+            return question
+        except Exception:
+            # 改写失败时降级：直接用原问题去搜
+            return question
 
     def _format_context(self, docs) -> str:
         if not docs:
