@@ -79,15 +79,26 @@ class TestLoadDocuments:
         with pytest.raises(RuntimeError, match="所有文件都无法读取"):
             vs_module._load_documents()
 
-    def test_ignores_non_text_files(self, fake_knowledge_dir):
-        (fake_knowledge_dir / "keep.txt").write_text("内容", encoding="utf-8")
-        (fake_knowledge_dir / "ignore.pdf").write_bytes(b"%PDF-fake")
+    def test_skips_broken_or_empty_pdf(self, fake_knowledge_dir, caplog):
+        """测试：遇到损坏或无文字层的 PDF 时安全跳过，不崩溃，正常加载 txt。"""
+        import logging
+        
+        (fake_knowledge_dir / "keep.txt").write_text("正常内容", encoding="utf-8")
+        # 构造一个损坏的假 PDF 字节流
+        (fake_knowledge_dir / "fake_broken.pdf").write_bytes(b"%PDF-fake-broken")
         (fake_knowledge_dir / "ignore.jpg").write_bytes(b"\xff\xd8\xff")
 
-        docs = vs_module._load_documents()
+        with caplog.at_level(logging.WARNING, logger="src.vectorstore"):
+            docs = vs_module._load_documents()
+
+        # 断言 txt 正常加载
         assert len(docs) >= 1
         all_content = " ".join(d.page_content for d in docs)
-        assert "内容" in all_content
+        assert "正常内容" in all_content
+        
+        # 断言假 PDF 或空文字层 PDF 触发了警告并被跳过
+        # 只要日志里有 fake_broken.pdf 的警告即可（视你 vectorstore.py 具体日志定）
+        assert any("fake_broken.pdf" in rec.message for rec in caplog.records)
 
 
 class TestLoadVectorstore:

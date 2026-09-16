@@ -1,90 +1,102 @@
 [
   {
     "question": "BMP280 的气压测量范围是多少？",
-    "expectedsources": ["01_温湿度传感器.md"]
+    "expected_sources": ["01_温湿度传感器.md"],
+    "category": "参数查询"
   },
   {
     "question": "MPU6050 加速度传感器内置的 DMP 功能有什么作用？",
-    "expectedsources": ["04_加速度传感器.md"]
+    "expected_sources": ["04_加速度传感器.md"],
+    "category": "原理问题"
   },
   {
     "question": "压阻式压力传感器与压电式压力传感器的工作原理和适用场景有何不同？",
-    "expectedsources": ["02_压力传感器.md"]
+    "expected_sources": ["02_压力传感器.md"],
+    "category": "选型比较"
   },
   {
     "question": "在需要检测透明物体且要求高可靠性的场景，应该选择哪种类型的光电传感器？",
-    "expectedsources": ["03_光电传感器.md"]
+    "expected_sources": ["03_光电传感器.md"],
+    "category": "选型比较"
   },
   {
     "question": "红外气体传感器 (NDIR) 相比半导体气体传感器有哪些优势？",
-    "expectedsources": ["07_气体传感器.md"]
+    "expected_sources": ["07_气体传感器.md"],
+    "category": "原理问题"
   },
   {
     "question": "使用 HC-SR04 超声波传感器时，如果连接 3.3V 的 MCU（如 ESP32），在电路连接上需要注意什么？",
-    "expectedsources": ["06_超声波传感器.md"]
+    "expected_sources": ["06_超声波传感器.md"],
+    "category": "故障处理"
   },
   {
     "question": "被动红外传感器 (PIR) 为什么只能检测移动的人体，对静止人体不敏感？",
-    "expectedsources": ["05_红外传感器.md"]
+    "expected_sources": ["05_红外传感器.md"],
+    "category": "原理问题"
   },
   {
     "question": "在测量角度和方向时，推荐使用哪一种磁传感器技术？",
-    "expectedsources": ["08_磁传感器.md"]
+    "expected_sources": ["08_磁传感器.md"],
+    "category": "选型比较"
   },
   {
     "question": "压电传感器的居里点温度和压电常数分别是多少？",
-    "expectedsources": ["12_压电传感器.md"],
+    "expected_sources": ["12_压电传感器.md"],
     "category": "参数查询"
   },
   {
     "question": "SHT30 温度传感器在 0°C 到 65°C 之间的典型精度误差是多少？",
-    "expectedsources": ["Datasheet_SHT3x_DIS.pdf"],
+    "expected_sources": ["Datasheet_SHT3x_DIS.pdf"],
     "category": "参数查询"
   },
   {
     "question": "电容式传感器检测非金属物体位移或液位的基本工作原理是什么？",
-    "expectedsources": ["10_电容式传感器.md"],
+    "expected_sources": ["10_电容式传感器.md"],
     "category": "原理问题"
   },
   {
     "question": "热电偶基于什么物理效应工作？它产生热电势的条件是什么？",
-    "expectedsources": ["13_热电偶温度传感器.md"],
+    "expected_sources": ["13_热电偶温度传感器.md"],
     "category": "原理问题"
   },
   {
     "question": "在拍摄高速运动物体或用于工业高速检测时，应该选择全局快门还是卷帘快门的图像传感器？为什么？",
-    "expectedsources": ["15_图像传感器.md"],
+    "expected_sources": ["15_图像传感器.md"],
     "category": "选型比较"
   },
   {
     "question": "对于不同金属的检测，电感式传感器的检测距离折减系数是如何变化的？",
-    "expectedsources": ["11_电感式传感器.md"],
+    "expected_sources": ["11_电感式传感器.md"],
     "category": "选型比较"
   },
   {
     "question": "应变式传感器在实际应用中，如何通过电路方法补偿温度变化带来的误差？",
-    "expectedsources": ["09_应变式传感器.md"],
+    "expected_sources": ["09_应变式传感器.md"],
     "category": "故障处理"
   },
   {
     "question": "电容式传感器容易受寄生电容影响，可以采用哪些技术或架构来抑制寄生电容？",
-    "expectedsources": ["10_电容式传感器.md"],
+    "expected_sources": ["10_电容式传感器.md"],
     "category": "故障处理"
   },
   {
     "question": "DHT22 传感器的湿度测量范围和精度分别是多少？",
-    "expectedsources": ["DHT22.pdf"]
+    "expected_sources": ["DHT22.pdf"],
+    "category": "参数查询"
   },
   {
     "question": "KP465 压力传感器中的 Diag1 诊断测试是如何检查信号路径功能的？",
-    "expectedsources": ["infineon-kp465-datasheet-cn.pdf"]
+    "expected_sources": ["infineon-kp465-datasheet-cn.pdf"],
+    "category": "故障处理"
   },
   {
     "question": "在通信过程中，DHT11 和 DHT22 发送数据时是如何通过电平信号长度区分数据位 '0' 和 '1' 的？",
-    "expectedsources": ["DHT11.PDF", "DHT22.pdf"]
+    "expected_sources": ["DHT11.PDF", "DHT22.pdf"],
+    "category": "原理问题"
   },
   {
     "question": "MPU-6050 在进行高加速应力测试（HAST）时，采用的温度、湿度和气压条件是什么？",
-    "expectedsources": ["mpu-6050_datasheet_v3 4.pdf"]
+    "expected_sources": ["mpu-6050_datasheet_v3 4.pdf"],
+    "category": "参数查询"
   }
 ]

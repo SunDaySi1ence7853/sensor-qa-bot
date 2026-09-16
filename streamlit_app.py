@@ -1,12 +1,13 @@
-# app.py
+# streamlit_app.py
 """
 传感器知识库问答机器人（Web 交互版）
-运行：streamlit run app.py
+运行：streamlit run streamlit_app.py
 """
 
 import streamlit as st
 import sys
 import os
+import time
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
@@ -76,6 +77,7 @@ if prompt := st.chat_input("请输入关于传感器的问题..."):
             full_response = ""
             meta_info = {}
             
+            start_time = time.time()  # 掐表开始
             try:
                 for event in chat.ask_stream(prompt, history=st.session_state.history):
                     if not event.done:
@@ -84,7 +86,10 @@ if prompt := st.chat_input("请输入关于传感器的问题..."):
                     else:
                         result = event.result
                         st.session_state.history = result.history
-                        meta_info["cost"] = f"💰 本次消耗：{result.usage.total_tokens} tokens | 估算成本：¥{result.usage.estimated_cost_cny:.6f}"
+                        end_time = time.time()  # 掐表结束
+                        elapsed_time = end_time - start_time
+                        
+                        meta_info["cost"] = f"⏱️ 端到端耗时: {elapsed_time:.2f}s | 💰 本次消耗：{result.usage.total_tokens} tokens | 估算成本：¥{result.usage.estimated_cost_cny:.6f}"
                         if result.sources:
                             sources_md = "\n".join([f"- 📄 `{src}`" for src in result.sources])
                             meta_info["sources"] = sources_md
