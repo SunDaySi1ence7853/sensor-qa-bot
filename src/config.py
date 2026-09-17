@@ -153,3 +153,9 @@ def require_api_key() -> str:
             "请检查项目根目录下的 .env 文件是否存在且格式正确。"
         )
     return cfg.deepseek_api_key
+# ---------- 第八阶段:数据源配置 ----------
+data_source: simulated   # simulated | serial(A线真实硬件)
+serial:
+  port: COM3             # Windows;Linux/Mac 改 /dev/ttyUSB0 或 /dev/ttyACM0
+  baudrate: 9600
+  timeout: 1.0
