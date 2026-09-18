@@ -156,6 +156,6 @@ def require_api_key() -> str:
 # ---------- 第八阶段:数据源配置 ----------
 data_source: simulated   # simulated | serial(A线真实硬件)
 serial:
-  port: COM3             # Windows;Linux/Mac 改 /dev/ttyUSB0 或 /dev/ttyACM0
-  baudrate: 9600
-  timeout: 1.0
+port: COM3             # Windows;Linux/Mac 改 /dev/ttyUSB0 或 /dev/ttyACM0
+baudrate: 9600
+timeout: 1.0

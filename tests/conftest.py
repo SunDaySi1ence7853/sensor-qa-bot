@@ -12,6 +12,8 @@ import os
 
 import pytest
 
+import os
+os.environ["SENSOR_DATA_SOURCE"] = "simulated"  # 测试固定模拟源，不随 config.yaml 的串口演示配置漂移
 
 @pytest.fixture(autouse=True)
 def _clear_caches():
