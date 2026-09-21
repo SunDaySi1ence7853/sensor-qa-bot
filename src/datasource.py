@@ -5,22 +5,12 @@
 - DataSource 抽象基类:统一 read() 接口，内置防御三件套(校验+重试+跳过告警)
 - SimulatedSource:正弦+噪声模拟，相位回溯(同一时刻读数可复现，历史查询可对账)
 - SerialSource:串口行协议解析，A线接真实 pyserial，B线接 FakeSerial
-- FakeSerial:模拟串口字节流(含偶发坏帧)；正常帧在 temp/humi/vib 间轮转，
-  B线三类传感器全链路可演示
+- FakeSerial:模拟串口字节流(含偶发坏帧)；正常帧在 temp/humi/vib 间轮转
 - 类型解析优先级:环境变量 SENSOR_DATA_SOURCE > config.yaml data_source > simulated
-  (测试用 conftest 固定模拟源，演示配置随便切，互不干扰)
 
 串口行协议(文本，便于调试):
     temp,25.30,C\r\n
     humi,55.20,RH\r\n
-    vib,1.23,g\r\n
-字段:sensor_id, value, unit —— sensor_id 自描述，上层按其路由到具体传感器
-
-坏点类型(防御全覆盖):
-- 格式坏帧:乱码/字段缺失/非数字
-- 数值坏点:NaN
-- 量程越界(由上层各传感器量程校验)
-- 读取超时 / 设备异常
 """
 
 from __future__ import annotations
@@ -40,7 +30,6 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class SensorReading:
-    """一次传感器读数。valid=False 时 value 为 nan，note 说明原因。"""
     sensor_id: str
     value: float
     unit: str
@@ -54,8 +43,6 @@ class SensorReading:
 
 
 class DataSource(ABC):
-    """数据源抽象基类。子类只实现 _read_raw()，基类负责防御。"""
-
     name: str = "base"
 
     def __init__(self, sensor_id: str, unit: str,
@@ -68,15 +55,14 @@ class DataSource(ABC):
 
     @abstractmethod
     def _read_raw(self) -> Optional[SensorReading]:
-        """读一帧原始数据。返回 None 表示本轮无数据(如超时)。"""
+        pass
 
     def read(self) -> SensorReading:
-        """带防御的读取:校验 + 重试 + 跳过告警，永不抛异常。"""
         last_note = "无数据"
         for attempt in range(self.max_retries + 1):
             try:
                 reading = self._read_raw()
-            except Exception as exc:  # 串口拔出、设备断连等
+            except Exception as exc:
                 last_note = f"读取异常:{exc}"
                 logger.warning("%s 读取异常(第 %d 次): %s", self.name, attempt + 1, exc)
                 continue
@@ -109,8 +95,6 @@ class DataSource(ABC):
 
 
 class SimulatedSource(DataSource):
-    """正弦+噪声模拟数据源。噪声按时间戳种子化，相位回溯可复现任意时刻读数。"""
-
     name = "simulated"
 
     def __init__(self, sensor_id: str = "temp", unit: str = "°C",
@@ -123,12 +107,10 @@ class SimulatedSource(DataSource):
         self.noise = noise
 
     def value_at(self, ts: float) -> float:
-        """相位回溯:由时间戳直接计算理论值(不含噪声)，历史对账用。"""
         phase = 2 * math.pi * ((ts % self.period_sec) / self.period_sec)
         return self.base + self.amplitude * math.sin(phase)
 
     def reading_at(self, ts: float) -> SensorReading:
-        """任意时刻的完整读数。噪声以 int(ts) 为种子，同一时刻读数可复现。"""
         rng = random.Random(int(ts))
         value = self.value_at(ts) + rng.uniform(-self.noise, self.noise)
         return SensorReading(self.sensor_id, round(value, 2),
@@ -139,9 +121,6 @@ class SimulatedSource(DataSource):
 
 
 class SerialSource(DataSource):
-    """串口数据源。serial_port 为鸭子类型:真 pyserial.Serial 或 FakeSerial 均可。
-    帧内 sensor_id 自描述，由上层按需路由到具体传感器。"""
-
     name = "serial"
     FRAME_RE = re.compile(r"^\s*([A-Za-z0-9_\-]+),(-?\d+(?:\.\d+)?),([A-Za-z°/%]+)\s*$")
 
@@ -153,7 +132,7 @@ class SerialSource(DataSource):
     def _read_raw(self) -> Optional[SensorReading]:
         line = self.serial.readline()
         if not line:
-            return None  # 超时，无数据
+            return None
         text = line.decode("utf-8", errors="replace").strip()
         m = self.FRAME_RE.match(text)
         if not m:
@@ -163,23 +142,13 @@ class SerialSource(DataSource):
 
 
 class FakeSerial:
-    """模拟串口:按比例产出正常帧与各类坏帧。
-
-    正常帧在 sensor_ids 间轮转(保证每类传感器都会出现)，数值落在
-    各自的模拟区间内——B线无硬件也能让三类传感器全链路跑通。
-    script 参数可注入预置字节序列(逐帧弹出，耗尽后返回 b"" 模拟
-    静默超时)，用于测试精确控制每一帧。
-    """
-
     _BAD_FRAMES = (
-        b"garbage without comma\r\n",   # 格式坏帧:无逗号
-        b"\x00\xff\xfe junk bytes\r\n", # 乱码字节
-        b"temp,nan,C\r\n",              # NaN 坏点
-        b"temp,999,C\r\n",              # 量程越界
-        b"temp,25.3\r\n",               # 字段缺失
+        b"garbage without comma\r\n",
+        b"\x00\xff\xfe junk bytes\r\n",
+        b"temp,nan,C\r\n",
+        b"temp,999,C\r\n",
+        b"temp,25.3\r\n",
     )
-
-    # 每类传感器的正常值区间与协议单位
     _GOOD_SPECS = {
         "temp": ((20.0, 30.0), "C"),
         "humi": ((40.0, 60.0), "RH"),
@@ -206,7 +175,7 @@ class FakeSerial:
     def readline(self) -> bytes:
         if self._script is not None:
             if self._cursor >= len(self._script):
-                return b""  # 模拟静默超时
+                return b""
             frame = self._script[self._cursor]
             self._cursor += 1
             return frame
@@ -214,7 +183,6 @@ class FakeSerial:
             return self._rng.choice(self._BAD_FRAMES)
         return self._good_frame()
 
-    # --- pyserial 兼容接口 ---
     def write(self, data): pass
     def open(self): pass
     def close(self): pass
@@ -224,10 +192,7 @@ class FakeSerial:
         return True
 
 
-# ---------------- 工厂与配置 ---------------- #
-
 def _config_source_type() -> str:
-    """数据源类型解析:环境变量 SENSOR_DATA_SOURCE > config.yaml > simulated。"""
     import os
     env = os.environ.get("SENSOR_DATA_SOURCE", "").strip().lower()
     if env:
@@ -238,14 +203,10 @@ def _config_source_type() -> str:
     except Exception:
         return "simulated"
 
-
 def resolve_source_type() -> str:
-    """公开接口:当前生效的数据源类型(供 sensor_tools 等上层复用)。"""
     return _config_source_type()
 
-
 def _open_serial_port():
-    """尝试打开真实串口；失败(无硬件/无 pyserial)返回 None。"""
     port, baud, timeout = "COM3", 9600, 1.0
     try:
         from src.config import get_config
@@ -259,7 +220,7 @@ def _open_serial_port():
         import serial
         ser = serial.Serial(port=port, baudrate=baud, timeout=timeout)
         try:
-            ser.reset_input_buffer()   # 丢弃打开前积压的旧帧，从"现在"开始读
+            ser.reset_input_buffer()
         except Exception:
             pass
         return ser
@@ -267,9 +228,7 @@ def _open_serial_port():
         logger.info("真实串口 %s 打开失败: %s", port, exc)
         return None
 
-
 def get_datasource(source_type: Optional[str] = None, **kwargs) -> DataSource:
-    """按配置创建数据源。source_type: 'simulated' | 'serial'；未指定时读配置。"""
     if source_type is None:
         source_type = _config_source_type()
 
@@ -284,19 +243,12 @@ def get_datasource(source_type: Optional[str] = None, **kwargs) -> DataSource:
         logger.warning("未知数据源配置 %r，回退 simulated", source_type)
     return SimulatedSource(**kwargs)
 
-
 if __name__ == "__main__":
-    # 演示:模拟 ↔ 串口(B线 FakeSerial)切换，直接 python -m src.datasource 截图
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(message)s")
-
-    print("=== 演示 1: SimulatedSource(模拟数据) ===")
+    print("=== 演示 1: SimulatedSource ===")
     sim = SimulatedSource()
-    for _ in range(3):
-        print(sim.read())
-        time.sleep(0.05)
+    for _ in range(3): print(sim.read()); time.sleep(0.05)
 
-    print("\n=== 演示 2: SerialSource + FakeSerial(B线，temp/humi/vib 轮转+坏帧自动剔除) ===")
+    print("\n=== 演示 2: SerialSource + FakeSerial ===")
     ser = SerialSource(FakeSerial(bad_ratio=0.4, seed=2026))
-    for _ in range(8):
-        print(ser.read())
-        time.sleep(0.05)
+    for _ in range(8): print(ser.read()); time.sleep(0.05)

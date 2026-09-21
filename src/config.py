@@ -4,6 +4,7 @@
 
 import os
 import re
+import json
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -31,7 +32,13 @@ class Config:
     chunk_overlap: int
     vectorstore_dir: str
     memory_turns: int
-    sensor_thresholds: dict  # 新增：传感器阈值配置
+    sensor_thresholds: dict  # 传感器阈值配置
+    
+    # ---------- 第八阶段新增：数据源配置 ----------
+    data_source: str
+    serial_port: str
+    serial_baudrate: int
+    serial_timeout: float
 
 
 def _normalize_base_url(url: str) -> str:
@@ -96,7 +103,6 @@ def get_config() -> Config:
             f"EMBEDDING_PROVIDER 只能是 local 或 deepseek，当前值：{embedding_provider}"
         )
 
-    import json
     default_thresholds = {
         "temperature": {"min": 10.0, "max": 35.0},
         "humidity": {"min": 20.0, "max": 80.0},
@@ -109,6 +115,8 @@ def get_config() -> Config:
         except json.JSONDecodeError:
             logger.warning("SENSOR_THRESHOLDS 格式错误，使用默认值")
 
+    # 读取数据源配置，默认使用 simulated
+    data_source = os.getenv("SENSOR_DATA_SOURCE", "simulated").lower().strip()
 
     cfg = Config(
         deepseek_api_key=os.getenv("DEEPSEEK_API_KEY", ""),
@@ -131,15 +139,21 @@ def get_config() -> Config:
         chunk_overlap=chunk_overlap,
         vectorstore_dir=os.getenv("VECTORSTORE_DIR", "vectorstore"),
         memory_turns=_parse_int("MEMORY_TURNS", 6, min_val=1, max_val=100),
-        sensor_thresholds=default_thresholds,  # 新增
+        sensor_thresholds=default_thresholds,
+        # ---------- 第八阶段新增配置项 ----------
+        data_source=data_source,
+        serial_port=os.getenv("SERIAL_PORT", "COM3"),
+        serial_baudrate=_parse_int("SERIAL_BAUDRATE", 9600),
+        serial_timeout=_parse_float("SERIAL_TIMEOUT", 1.0),
     )
 
     logger.debug(
-        "配置加载完成 | model=%s | provider=%s | top_k=%d | memory_turns=%d",
+        "配置加载完成 | model=%s | provider=%s | top_k=%d | memory_turns=%d | data_source=%s",
         cfg.deepseek_model,
         cfg.embedding_provider,
         cfg.retrieve_top_k,
         cfg.memory_turns,
+        cfg.data_source,
     )
     return cfg
 
@@ -153,9 +167,3 @@ def require_api_key() -> str:
             "请检查项目根目录下的 .env 文件是否存在且格式正确。"
         )
     return cfg.deepseek_api_key
-# ---------- 第八阶段:数据源配置 ----------
-data_source: simulated   # simulated | serial(A线真实硬件)
-serial:
-port: COM3             # Windows;Linux/Mac 改 /dev/ttyUSB0 或 /dev/ttyACM0
-baudrate: 9600
-timeout: 1.0
