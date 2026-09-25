@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import json
+import yaml
 from src.agent import get_sensor_agent
 from src.tools.sensor_tools import get_sensor_data, query_history
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
@@ -14,6 +15,14 @@ def load_agent():
 
 agent = load_agent()
 
+# 读取配置文件，提取当前数据源模式用于展示
+try:
+    with open("config.yaml", "r", encoding="utf-8") as f:
+        cfg = yaml.safe_load(f)
+    current_mode = cfg.get("data_source", "unknown").upper()
+except:
+    current_mode = "UNKNOWN"
+
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -25,7 +34,6 @@ col1, col2 = st.columns([1.5, 1])
 with col1:
     st.subheader("💬 Agent 对话区")
     
-    # 展示历史对话
     for msg in st.session_state.messages:
         if msg["role"] == "user":
             with st.chat_message("user"):
@@ -57,13 +65,10 @@ with col1:
                 
                 response = agent.invoke({"messages": history})
                 
-                # --- 核心修改：ReAct 过程可视化 ---
                 st.write("### 🔄 推理与行动 过程")
-                # 只遍历新产生的消息（跳过传进去的 history）
                 new_messages = response["messages"][len(history):]
                 
                 for msg in new_messages:
-                    # 1. 如果是 AI 决定调用工具
                     if isinstance(msg, AIMessage) and msg.tool_calls:
                         for tc in msg.tool_calls:
                             tool_name = tc.get("name")
@@ -72,11 +77,9 @@ with col1:
                             with st.expander(f"传入参数"):
                                 st.json(args)
                                 
-                    # 2. 如果是工具返回了结果
                     elif isinstance(msg, ToolMessage):
                         st.write(f"**📋 结果：`{msg.name}` 返回**")
                         try:
-                            # 尝试把 string 解析成 json 好看一点
                             content_json = json.loads(msg.content)
                             with st.expander("工具返回数据"):
                                 st.json(content_json)
@@ -86,7 +89,6 @@ with col1:
                                 
                 status.update(label="Agent 执行完成！", state="complete", expanded=False)
             
-            # 提取最后回复与统计信息
             ai_msg = response["messages"][-1]
             ai_content = ai_msg.content
             
@@ -111,7 +113,6 @@ with col1:
                     except:
                         references.append(msg.content)
 
-            # 输出最终回复
             message_placeholder.markdown(ai_content)
             
             if total_tokens > 0:
@@ -129,15 +130,23 @@ with col1:
                 "cost": cost,
                 "refs": references
             })
+
 with col2:
     st.subheader("📊 实时监控面板")
     
-    # 手动刷新数据的按钮
+    # 【新增】当前数据源模式指示牌，截图关键！
+    if current_mode == "SIMULATED":
+        st.info(f"⚙️ **当前数据源模式：`{current_mode}`** (纯软件模拟)")
+    elif current_mode == "SERIAL":
+        st.warning(f"⚙️ **当前数据源模式：`{current_mode}`** (真实硬件串口)")
+    else:
+        st.error(f"⚙️ **当前数据源模式：`{current_mode}`**")
+    st.write("---")
+    
     if st.button("🔄 刷新实时与历史数据", use_container_width=True):
         st.rerun()
 
     try:
-        # 1. 获取并展示实时数据卡片
         temp_data = get_sensor_data.invoke({"sensor_type": "temperature"})
         
         m1, m2 = st.columns(2)
@@ -158,7 +167,6 @@ with col2:
         
         st.write("---")
         
-        # 2. 获取历史数据并画图
         st.write("### 近1小时温度趋势摘要")
         hist_temp = query_history.invoke({"sensor_type": "temperature", "hours": 1})
         
