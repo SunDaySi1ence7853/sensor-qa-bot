@@ -53,7 +53,7 @@ class _SensorHub:
             shared = get_datasource("serial", value_range=(None, None), max_retries=1)
             self._serial = shared
             if isinstance(shared.serial, FakeSerial):
-                self.label = "serial(降级模拟)"
+                self.label = "simulated"
                 logger.warning("真实串口不可用，降级为 FakeSerial")
             else:
                 self.label = "serial"
