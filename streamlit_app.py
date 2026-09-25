@@ -8,21 +8,18 @@ from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 # ----------------- 页面基础配置 -----------------
 st.set_page_config(page_title="传感器 QA Bot", page_icon="🤖", layout="wide")
 
-# 缓存加载 Agent，避免每次对话都重新初始化
 @st.cache_resource
 def load_agent():
     return get_sensor_agent()
 
 agent = load_agent()
 
-# 初始化对话历史
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
 st.title("🤖 工业传感器监控与诊断助手")
 st.caption("基于 LangGraph + DeepSeek + ESP32 实时串口数据")
 
-# ----------------- 页面布局：左 60% 聊天，右 40% 图表 -----------------
 col1, col2 = st.columns([1.5, 1])
 
 with col1:
@@ -36,87 +33,102 @@ with col1:
         else:
             with st.chat_message("assistant"):
                 st.markdown(msg["content"])
-                # 显示历史 Token 与费用
                 if msg.get("tokens", 0) > 0:
                     st.caption(f"🔍 Token消耗: {msg['tokens']} | 💰 估算费用: ¥{msg['cost']:.4f}")
-                # 显示历史知识引用
                 if msg.get("refs"):
                     with st.expander("📚 知识库引用来源"):
                         for i, ref in enumerate(msg["refs"]):
                             st.markdown(f"**片段 {i+1}：**")
                             st.text(ref[:500] + "..." if len(ref) > 500 else ref)
 
-    # 接收用户输入
     if prompt := st.chat_input("问问 Agent：现在温度正常吗？或者问硬件规格"):
-        # 展示并记录用户输入
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
 
-        # 调用 Agent 获取回复
         with st.chat_message("assistant"):
             message_placeholder = st.empty()
-            with st.spinner("Agent 正在思考并调用工具..."):
-                # 将 session_state 里的历史转换为 LangChain 消息格式
+            
+            with st.status("Agent 正在思考与调用工具...", expanded=True) as status:
                 history = [
                     HumanMessage(content=m["content"]) if m["role"] == "user" else AIMessage(content=m["content"])
                     for m in st.session_state.messages
                 ]
                 
-                # 调用 ReAct Agent
                 response = agent.invoke({"messages": history})
                 
-                # 提取最后一条 AI 消息
-                ai_msg = response["messages"][-1]
-                ai_content = ai_msg.content
+                # --- 核心修改：ReAct 过程可视化 ---
+                st.write("### 🔄 推理与行动 过程")
+                # 只遍历新产生的消息（跳过传进去的 history）
+                new_messages = response["messages"][len(history):]
                 
-                # 1. 提取 Token 统计与计算费用
-                total_tokens = 0
-                cost = 0.0
-                if hasattr(ai_msg, 'usage_metadata') and ai_msg.usage_metadata:
-                    usage = ai_msg.usage_metadata
-                    input_tokens = usage.get('input_tokens', 0)
-                    output_tokens = usage.get('output_tokens', 0)
-                    total_tokens = usage.get('total_tokens', 0)
-                    # 估算费用：假设 DeepSeek 输入 0.001元/千 tokens，输出 0.002元/千 tokens
-                    cost = (input_tokens * 0.001 + output_tokens * 0.002) / 1000
-                
-                # 2. 提取知识库引用（遍历消息找 ToolMessage）
-                references = []
-                for msg in response["messages"]:
-                    # 知识库工具名如果是 search_manual
-                    if isinstance(msg, ToolMessage) and msg.name == "search_manual":
+                for msg in new_messages:
+                    # 1. 如果是 AI 决定调用工具
+                    if isinstance(msg, AIMessage) and msg.tool_calls:
+                        for tc in msg.tool_calls:
+                            tool_name = tc.get("name")
+                            args = tc.get("args")
+                            st.write(f"**🧠 决策：调用工具 `{tool_name}`**")
+                            with st.expander(f"传入参数"):
+                                st.json(args)
+                                
+                    # 2. 如果是工具返回了结果
+                    elif isinstance(msg, ToolMessage):
+                        st.write(f"**📋 结果：`{msg.name}` 返回**")
                         try:
-                            # 尝试解析工具返回的 JSON，提取具体的文档片段
-                            ref_data = json.loads(msg.content)
-                            if "content" in ref_data:
-                                references.append(ref_data["content"])
-                            elif "documents" in ref_data:
-                                references.extend(ref_data["documents"])
+                            # 尝试把 string 解析成 json 好看一点
+                            content_json = json.loads(msg.content)
+                            with st.expander("工具返回数据"):
+                                st.json(content_json)
                         except:
-                            references.append(msg.content)
+                            with st.expander("工具返回数据"):
+                                st.text(msg.content[:500])
+                                
+                status.update(label="Agent 执行完成！", state="complete", expanded=False)
+            
+            # 提取最后回复与统计信息
+            ai_msg = response["messages"][-1]
+            ai_content = ai_msg.content
+            
+            total_tokens = 0
+            cost = 0.0
+            if hasattr(ai_msg, 'usage_metadata') and ai_msg.usage_metadata:
+                usage = ai_msg.usage_metadata
+                input_tokens = usage.get('input_tokens', 0)
+                output_tokens = usage.get('output_tokens', 0)
+                total_tokens = usage.get('total_tokens', 0)
+                cost = (input_tokens * 0.001 + output_tokens * 0.002) / 1000
+            
+            references = []
+            for msg in response["messages"]:
+                if isinstance(msg, ToolMessage) and msg.name == "search_manual":
+                    try:
+                        ref_data = json.loads(msg.content)
+                        if "content" in ref_data:
+                            references.append(ref_data["content"])
+                        elif "documents" in ref_data:
+                            references.extend(ref_data["documents"])
+                    except:
+                        references.append(msg.content)
 
-                # 输出主体回复
-                message_placeholder.markdown(ai_content)
-                
-                # 输出 Token 统计与引用
-                if total_tokens > 0:
-                    st.caption(f"🔍 Token消耗: {total_tokens} | 💰 估算费用: ¥{cost:.4f}")
-                
-                if references:
-                    with st.expander("📚 知识库引用来源"):
-                        for i, ref in enumerate(references):
-                            st.markdown(f"**片段 {i+1}：**")
-                            st.text(ref[:500] + "..." if len(ref) > 500 else ref)
-                
-        st.session_state.messages.append({
-            "role": "assistant", 
-            "content": ai_content, 
-            "tokens": total_tokens, 
-            "cost": cost,
-            "refs": references
-        })
-
+            # 输出最终回复
+            message_placeholder.markdown(ai_content)
+            
+            if total_tokens > 0:
+                st.caption(f"🔍 Token消耗: {total_tokens} | 💰 估算费用: ¥{cost:.4f}")
+            if references:
+                with st.expander("📚 知识库引用来源"):
+                    for i, ref in enumerate(references):
+                        st.markdown(f"**片段 {i+1}：**")
+                        st.text(ref[:500] + "..." if len(ref) > 500 else ref)
+            
+            st.session_state.messages.append({
+                "role": "assistant", 
+                "content": ai_content, 
+                "tokens": total_tokens, 
+                "cost": cost,
+                "refs": references
+            })
 with col2:
     st.subheader("📊 实时监控面板")
     
