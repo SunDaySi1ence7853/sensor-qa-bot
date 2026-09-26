@@ -139,6 +139,35 @@ DHT22 相比 DHT11 精度更高（温度 ±0.5°C vs ±2°C），
 ```
 
 ---
+## 系统架构
+
+mermaid
+flowchart TB
+    subgraph L1[数据源层 src/datasource.py]
+        ESP32[ESP32 + 传感器<br/>A线: 真实串口] --> SS[SerialSource]
+        FS[FakeSerial<br/>B线: 降级兜底] -.-> SS
+        SIM[SimulatedSource<br/>正弦+噪声/相位回溯]
+    end
+    subgraph L2[采样层 src/tools/sensor_tools.py]
+        HUB[_SensorHub 单例<br/>路由 + 串口锁]
+        SAMPLER[采样线程 daemon<br/>每30s sample_once]
+        BUF[(history buffer<br/>maxlen 2880 = 24h)]
+        SS --> HUB
+        SIM --> HUB
+        SAMPLER --> HUB
+        SAMPLER --> BUF
+    end
+    subgraph L3[Agent 层 LangGraph + DeepSeek]
+        TOOLS[get_sensor_data / query_history<br/>check_threshold / search_manual / generate_report]
+        TOOLS --> HUB
+        TOOLS --> BUF
+    end
+    subgraph L4[Web 层 Streamlit]
+        CHAT[对话区 ReAct 过程] --> TOOLS
+        PANEL[监控面板] --> TOOLS
+    end
+对账关系：采样间隔 30s × buffer 容量 2880 = 86400s = 24h(由 `TestRetentionContract` 锁定)。
+
 
 ## 🌐 Web 界面使用说明
 
