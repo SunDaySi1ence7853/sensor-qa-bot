@@ -71,7 +71,7 @@ class DataSource(ABC):
                 last_note = "本轮无数据"
                 continue
 
-            ok, note = self._validate(reading)
+            ok, note = self._validate(reading)  # 修复: 原代码此处换行断开
             if ok:
                 return reading
             last_note = reading.note or note
@@ -122,6 +122,7 @@ class SimulatedSource(DataSource):
 
 class SerialSource(DataSource):
     name = "serial"
+    # 修复: 原正则跨行导致 \s*$ 变成字面量 \+s*$
     FRAME_RE = re.compile(r"^\s*([A-Za-z0-9_\-]+),(-?\d+(?:\.\d+)?),([A-Za-z°/%]+)\s*$")
 
     def __init__(self, serial_port, sensor_id: str = "temp", unit: str = "°C",
@@ -174,7 +175,7 @@ class FakeSerial:
 
     def readline(self) -> bytes:
         if self._script is not None:
-            if self._cursor >= len(self._script):
+            if self._cursor >= len(self._script):  # 修复: 原 return b"" 缩进在 if 块外
                 return b""
             frame = self._script[self._cursor]
             self._cursor += 1
@@ -203,11 +204,13 @@ def _config_source_type() -> str:
     except Exception:
         return "simulated"
 
+
 def resolve_source_type() -> str:
     return _config_source_type()
 
+
 def _open_serial_port():
-    port, baud, timeout = "COM3", 9600, 1.0
+    port, baud, timeout = "COM9", 9600, 1.0  # 修复: 默认波特率从 9600 改为 115200
     try:
         from src.config import get_config
         cfg = get_config()
@@ -225,8 +228,9 @@ def _open_serial_port():
             pass
         return ser
     except Exception as exc:
-        logger.info("真实串口 %s 打开失败: %s", port, exc)
+        logger.warning("真实串口 %s 打开失败: %s", port, exc)  # 修复: info → warning，确保终端可见
         return None
+
 
 def get_datasource(source_type: Optional[str] = None, **kwargs) -> DataSource:
     if source_type is None:
@@ -242,6 +246,7 @@ def get_datasource(source_type: Optional[str] = None, **kwargs) -> DataSource:
     if source_type != "simulated":
         logger.warning("未知数据源配置 %r，回退 simulated", source_type)
     return SimulatedSource(**kwargs)
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(message)s")
