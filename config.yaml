@@ -1,5 +1,5 @@
 # ---------- 第八阶段:数据源配置 ----------
 data_source: serial      # 板子到手了，切到 serial 接真实数据
-serial_port: COM10       # ← 改成你设备管理器里的实际 COM 号！(Linux/Mac 是 /dev/ttyUSB0)
+serial_port: COM9       # ← 改成你设备管理器里的实际 COM 号！(Linux/Mac 是 /dev/ttyUSB0)
 serial_baudrate: 9600
 serial_timeout: 1.0
