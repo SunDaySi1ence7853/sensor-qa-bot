@@ -3,7 +3,7 @@ import pandas as pd
 import json
 import yaml
 from src.agent import get_sensor_agent
-from src.tools.sensor_tools import get_sensor_data, query_history
+from src.tools.sensor_tools import get_sensor_data, query_history, start_sampler, get_sampler, _history_buffer, SAMPLE_INTERVAL_SEC, _HISTORY_MAX_POINTS
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 
 # ----------------- 页面基础配置 -----------------
@@ -15,8 +15,8 @@ def load_agent():
 
 agent = load_agent()
 # 后台采样线程：幂等启动，rerun 不会重复起线程；页面关掉后线程仍在服务进程里继续采
-from src.tools.sensor_tools import start_sampler, get_sampler, _history_buffer, SAMPLE_INTERVAL_SEC, _HISTORY_MAX_POINTS
 start_sampler()
+
 # 读取配置文件，提取当前数据源模式用于展示
 try:
     with open("config.yaml", "r", encoding="utf-8") as f:
@@ -136,13 +136,13 @@ with col1:
 with col2:
     st.subheader("📊 实时监控面板")
     
-    # 【新增】当前数据源模式指示牌，截图关键！
+    # 当前数据源模式指示牌
     if current_mode == "SIMULATED":
         st.info(f"⚙️ **当前数据源模式：`{current_mode}`** (纯软件模拟)")
     elif current_mode == "SERIAL":
         st.warning(f"⚙️ **当前数据源模式：`{current_mode}`** (真实硬件串口)")
     else:
-        st.error(f"⚙️ **当前数据源模式：`{current_mode}`**")
+        st.error(f"⚙️ **当前数据源模式：`current_mode`**")
     st.write("---")
     
     if st.button("🔄 刷新实时与历史数据", use_container_width=True):
@@ -166,20 +166,32 @@ with col2:
                 )
             except Exception:
                 st.metric(label="💧 实时湿度", value="N/A")
-            _s = get_sampler()
+        
+        _s = get_sampler()
         st.caption(f"🧵 后台采样：{'运行中' if _s and _s.is_alive() else '未运行'} · 每 {SAMPLE_INTERVAL_SEC:.0f}s 一条 · "
                f"温度 buffer {len(_history_buffer['temperature'])}/{_HISTORY_MAX_POINTS} 条")
         st.write("---")
         
-        st.write("### 近1小时温度趋势摘要")
+        # ============ 1. 监控报告 (供截图) ============
+        st.write("### 📄 监控报告")
         hist_temp = query_history.invoke({"sensor_type": "temperature", "hours": 1})
         
         if hist_temp.get("data_points", 0) > 0:
+            # 渲染文本报告
+            report_text = f"""
+            **近1小时温度监控摘要**
+            - **采样总数**: `{hist_temp.get('data_points', 0)}` 条
+            - **平均值**: `{hist_temp.get('mean', 'N/A')}` °C
+            - **最大值**: `{hist_temp.get('max', 'N/A')}` °C
+            - **最小值**: `{hist_temp.get('min', 'N/A')}` °C
+            """
+            st.markdown(report_text)
+            
+            # 渲染柱状图
             df_temp = pd.DataFrame({
                 "指标": ["最大值", "平均值", "最小值"],
                 "温度 (°C)": [hist_temp["max"], hist_temp["mean"], hist_temp["min"]]
             }).set_index("指标")
-            
             st.bar_chart(df_temp, horizontal=False)
             
             if hist_temp.get("is_alert"):
@@ -187,7 +199,19 @@ with col2:
             else:
                 st.success(f"✅ 温度正常，平均: {hist_temp['mean']} °C")
         else:
-            st.info("暂无足够的历史数据生成图表，多发几次数据即可。")
+            st.info("暂无足够的历史数据生成报告，多发几次数据即可。")
+
+        st.write("---")
+        
+        # ============ 2. 底层 Buffer 原始数据 (供截图对账) ============
+        with st.expander("🔍 查看底层 Buffer 原始数据 (数字回溯验证)"):
+            raw_temp_data = _history_buffer.get('temperature', [])
+            if raw_temp_data:
+                # 将 list[dict] 转为 DataFrame 显示为表格
+                df_buffer = pd.DataFrame(raw_temp_data)
+                st.dataframe(df_buffer, use_container_width=True)
+            else:
+                st.info("Buffer 暂无数据")
 
     except Exception as e:
         st.error(f"右侧面板获取数据失败: {e}")
