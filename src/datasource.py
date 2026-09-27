@@ -26,7 +26,13 @@ from datetime import datetime
 from typing import List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
-
+try:
+    import serial
+    import serial.tools.list_ports
+    SERIAL_AVAILABLE = True
+except ImportError:
+    SERIAL_AVAILABLE = False
+    logger.warning("未检测到 pyserial 库，真实串口模式不可用。将自动降级为模拟数据源。请运行 pip install pyserial 安装。")
 
 @dataclass
 class SensorReading:
@@ -210,7 +216,10 @@ def resolve_source_type() -> str:
 
 
 def _open_serial_port():
-    port, baud, timeout = "COM9", 9600, 1.0  # 修复: 默认波特率从 9600 改为 115200
+    if not SERIAL_AVAILABLE:
+        logger.error("pyserial 未安装，无法打开真实串口。")
+        return None
+    port, baud, timeout = "COM9", 9600, 1.0  
     try:
         from src.config import get_config
         cfg = get_config()
