@@ -166,13 +166,14 @@ sensor-qa-bot/
 ├── pyproject.toml          # 项目与依赖定义
 └── requirements.txt        # pip 依赖清单
 
----```
+---
+```
 
 
 
 ## 🌐 Web 界面使用说明
 
-本项目提供基于 Streamlit 的 Web 交互界面，方便评委与用户直接在浏览器中体验 RAG 问答。
+本项目提供基于 Streamlit 的 Web 交互界面，方便评委与用户直接在浏览器中体验 传感器智能体 + 实时监控面板。
 
 ### 1. 安装依赖
 
@@ -207,28 +208,7 @@ for event in chat.ask_stream("请对比 DHT22 和 SHT30"):
 
 ---
 
-## 🗂 项目结构
 
-```
-sensor-qa-bot/
-├── pyproject.toml         # 项目配置 & CLI 入口
-├── README.md
-├── .env                   # 环境变量（用户自建，勿提交 git）
-├── knowledge_base/        # 知识库源文档
-├── vectorstore/           # 生成的 FAISS 向量库
-├── logs/                  # 日志输出目录
-├── src/
-│   ├── __init__.py
-│   ├── config.py          # 配置加载 & 校验
-│   ├── embeddings.py      # Embedding 工厂（含 base_url 规范化）
-│   ├── vectorstore.py     # 向量库加载
-│   ├── build_vectorstore.py  # 向量库构建脚本
-│   ├── prompt.py          # Prompt 模板
-│   ├── llm.py             # LLM 工厂
-│   ├── rag_chat.py        # RAG 对话核心
-│   └── cli.py             # CLI 入口
-└── tests/                 # pytest 单元测试
-```
 
 ---
 
