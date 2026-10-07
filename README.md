@@ -146,9 +146,9 @@ graph TD
     A[数据源层<br>ESP32+DHT22 / FakeSerial] -->|串口/模拟| B(采样层<br>SerialSource)
     B -->|30s打点| C[(Buffer 容器<br>内存唯一事实源)]
     C --> D[Agent 层<br>LangGraph + DeepSeek]
-    D --> E[Web 层<br>Streamlit UI]```
+    D --> E[Web 层<br>Streamlit UI]
+```
 
-```markdown
 ## 项目结构
 
 ```text
@@ -165,9 +165,9 @@ sensor-qa-bot/
 ├── streamlit_app.py        # Web 交互界面入口
 ├── pyproject.toml          # 项目与依赖定义
 └── requirements.txt        # pip 依赖清单
+```
 
 ---
-```
 
 
 
@@ -205,10 +205,6 @@ for event in chat.ask_stream("请对比 DHT22 和 SHT30"):
     else:
         print(event.delta, end="", flush=True)
 ```
-
----
-
-
 
 ---
 
