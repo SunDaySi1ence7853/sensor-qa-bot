@@ -5,7 +5,9 @@
 """
 import json
 
-from .fakes import FAKE_MANUAL, FIXED_NOW, FakeLLM, FakeRetriever, make_readings
+from .fakes import (
+    FAKE_MANUAL, FIXED_NOW, FakeLLM, FakeRetriever, make_gapped_readings, make_readings,
+)
 from .supervisor import PipelineConfig, _initial_state, build_pipeline
 
 _LLM_RESP = json.dumps(
@@ -38,9 +40,7 @@ def run_path_a_degraded_then_warn():
         nonlocal call_count
         call_count += 1
         if call_count == 1:
-            # 首次采集：缺帧，质量降级
-            return make_readings([23.6, 23.6, 23.7], gap_before=True)
-        # 补采：读数恢复，但温度已呈上升趋势
+            return make_gapped_readings([23.6] * 10)     # 帧间有洞 → degraded
         return make_readings([23.0, 23.5, 24.0, 24.8, 25.5])
 
     cfg = PipelineConfig(
@@ -51,7 +51,8 @@ def run_path_a_degraded_then_warn():
     )
     pipeline = build_pipeline(cfg)
     result = pipeline.invoke(_initial_state("temperature", 1.0))
-    _print_result("路径A：降级→补采→告警→完整AI", result)
+    ai_mode = "lite（跳过 RAG，LLM 零调用）" if "ai_analysis_lite" in result["routing_path"] else "完整 RAG + LLM"
+    print(f"  AI 路径    : {ai_mode}")
     return result
 
 

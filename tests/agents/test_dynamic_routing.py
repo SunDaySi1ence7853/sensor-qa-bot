@@ -10,6 +10,10 @@ import pytest
 
 from src.agents.fakes import FAKE_MANUAL, FIXED_NOW, FakeLLM, FakeRetriever, make_readings
 from src.agents.supervisor import PipelineConfig, _initial_state, build_pipeline
+from src.agents.fakes import (
+    FAKE_MANUAL, FIXED_NOW, FakeLLM, FakeRetriever, make_gapped_readings, make_readings,
+)
+from src.agents.collector import CollectorAgent
 
 GOOD_LLM_RESP = json.dumps(
     {"root_cause": "散热不良", "recommendation": "检查风扇", "cited": [2]},
@@ -40,20 +44,27 @@ def _run(p, sensor="temperature"):
 # ── 路径A：补采路径 ───────────────────────────────────────────────────────
 
 class _StatefulReader:
-    """第一次返回 degraded 数据（少帧），第二次返回正常数据。"""
+    """第一次返回带时间洞的数据（degraded），第二次返回正常的上升趋势数据。"""
     def __init__(self):
         self.calls = 0
 
     def __call__(self, sensor_type: str):
         self.calls += 1
         if self.calls == 1:
-            return make_readings([23.6, 23.7])          # 只有 2 帧，触发 degraded
+            return make_gapped_readings([23.6] * 10)
         return make_readings([23.0, 23.5, 24.0, 24.8, 25.5])
 
 
 def test_degraded_triggers_re_collect_node():
-    reader = _StatefulReader()
-    result = _run(_make_pipeline(reader=reader))
+    # 前置：构造的数据必须真的判成 degraded，否则这条测试测的是空气
+    probe = CollectorAgent(
+        reader=lambda s: make_gapped_readings([23.6] * 10),
+        clock=lambda: FIXED_NOW,
+        interval_sec=30.0,
+    ).run({"sensor_type": "temperature", "window_hours": 1.0})
+    assert probe["data_quality"] == "degraded"
+
+    result = _run(_make_pipeline(reader=_StatefulReader()))
     assert "re_collect" in result["routing_path"]
 
 

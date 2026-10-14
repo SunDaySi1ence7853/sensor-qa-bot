@@ -1,14 +1,3 @@
-"""DiagnosisState：整条管线的唯一数据容器，按设计稿"谁写谁读"矩阵落地。
-
-各字段读写权限（任务2施工时请核对设计稿，不许在矩阵外写字段）：
-  sensor_type / window_hours  ← 入口，外部写，内部只读
-  collector                   ← CollectorAgent 写；RuleAgent / AIAnalysisAgent / ReportAgent 读
-  rule                        ← RuleAgent 写；AIAnalysisAgent / ReportAgent 读
-  ai_analysis                 ← AIAnalysisAgent 写；ReportAgent 读
-  report                      ← ReportAgent 写；Supervisor / Web 层读
-  errors                      ← 所有节点均可追加（reducer 保证不覆盖），Supervisor 汇总读
-  status                      ← Supervisor 写，外部只读
-"""
 """DiagnosisState：整条管线的唯一数据容器。
 
 字段读写矩阵见设计稿；routing_path 由各节点追加，用于调试和日志。
@@ -38,5 +27,5 @@ class DiagnosisState(TypedDict):
 
     # 管线元数据
     errors: Annotated[list[dict], operator.add]
-    routing_path: Annotated[list[str], operator.add]  # 记录实际走过的节点序列
+    routing_path: Annotated[list[str], operator.add]
     status: Status

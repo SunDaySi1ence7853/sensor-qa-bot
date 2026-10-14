@@ -79,10 +79,16 @@ def test_collector_failure_downstream_all_skip():
     assert result["report"] is None
 
 
-def test_collector_failure_cascades_to_three_skip_errors():
+def test_collector_failure_routes_directly_to_supervisor():
+    """路由语义演进记录：
+    固定管线时期（10-11）：collector 失败后下游逐个 skip，共 4 条错误。
+    动态路由（10-18）：collector 失败直达 supervisor，只剩 1 条，没有 skip 噪音。
+    """
     result = _run(_pipeline(), sensor="pressure")
-    # collector 本身 1 条 + rule/ai/report 各跳过 1 条 = 4
-    assert len(result["errors"]) == 4
+    assert len(result["errors"]) == 1
+    assert result["errors"][0]["agent"] == "collector"
+    assert result["routing_path"] == ["collector", "supervisor"]
+    assert result["status"] == "failed"
 
 
 # ── AI Agent 失败（知识库为空）─────────────────────────────────────────
@@ -102,7 +108,7 @@ def test_ai_failure_no_llm_call():
     cfg = PipelineConfig(
         llm=llm,
         retriever=FakeRetriever([]),
-        reader=lambda s: make_readings([23.6] * 5),
+        reader=lambda s: make_readings([23.0, 23.5, 24.0, 24.8, 25.5]),  # 必须触发规则，才会进完整 AI
         clock=lambda: FIXED_NOW,
     )
     _run(build_pipeline(cfg))
