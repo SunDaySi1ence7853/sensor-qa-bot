@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Callable, Optional
 
 from .base import AgentFailure
-from rule_config import load_rule_thresholds
+from .rule_config import load_rule_thresholds
 from .schemas import RuleInput, RuleItem, RuleOutput
 
 ROLE = """规则诊断 Agent（纯规则引擎，零 LLM、零 token）
