@@ -1,123 +1,128 @@
-"""规则引擎配置加载：唯一真相源是项目根目录 config.yaml 的 rule_engine 段。
+"""规则配置加载与校验。
 
-加载即强校验：缺字段、类型错、区间嵌套错，都在构造 RuleAgent 时当场报错，
-不等到诊断跑到一半才发现。
+前几条读真实 config.yaml，拦住手滑改错 yaml；
+后两条守卫专治"复制粘贴忘删旧段"和"注释写了测试没写"。
 """
-from __future__ import annotations
+import copy
+import re
 
-from pathlib import Path
-from typing import Optional, Union
-
+import pytest
 import yaml
 
-CONFIG_PATH = Path(__file__).resolve().parents[2] / "config.yaml"
+from src.agents.rule_config import (
+    CONFIG_PATH, RuleConfigError, load_rule_thresholds, parse_rule_config,
+)
+from src.config import get_config
 
-BAND_KEYS = ("physical", "warn", "fault")
-SCALAR_KEYS = ("jump", "trend_rise", "trend_fall", "approach_margin")
-# 全局参数：key -> (类型, 最小值)
-PARAM_SPECS = {
-    "trend_points": (int, 2),
-    "flatline_frames": (int, 2),
-    "flatline_epsilon": (float, 0.0),
-    "oscillation_min_jumps": (int, 2),
-    "sustained_frames": (int, 1),
+_VALID = {
+    "rule_engine": {
+        "params": {
+            "trend_points": 5, "flatline_frames": 40, "flatline_epsilon": 0.0,
+            "oscillation_min_jumps": 3, "sustained_frames": 10,
+        },
+        "thresholds": {
+            "temperature": {
+                "physical": [-40, 80], "warn": [10, 35], "fault": [0, 45],
+                "jump": 5, "trend_rise": 2, "trend_fall": 2, "approach_margin": 2,
+            },
+        },
+    }
 }
 
 
-class RuleConfigError(ValueError):
-    """规则配置不合法。属于部署错误，不是运行时数据问题，所以不用 AgentFailure。"""
+def _valid():
+    return copy.deepcopy(_VALID)
 
 
-def _band(where: str, raw) -> tuple[float, float]:
-    if not (isinstance(raw, (list, tuple)) and len(raw) == 2):
-        raise RuleConfigError(f"{where} 必须是 [下限, 上限]，当前：{raw!r}")
-    try:
-        lo, hi = float(raw[0]), float(raw[1])
-    except (TypeError, ValueError):
-        raise RuleConfigError(f"{where} 必须是数字，当前：{raw!r}")
-    if lo >= hi:
-        raise RuleConfigError(f"{where} 下限必须小于上限，当前：{raw!r}")
-    return (lo, hi)  # 必须是 float tuple：旧 evidence 按 "(10.0, 35.0)" 格式打印
+# ---------- 重复键检测用的 Loader ----------
+class _NoDupLoader(yaml.SafeLoader):
+    """PyYAML 遇到重复键会静默用后者覆盖前者，所以 data_source 段贴两遍不会报错。这里改成直接报出来。"""
 
 
-def _positive(where: str, raw) -> float:
-    try:
-        v = float(raw)
-    except (TypeError, ValueError):
-        raise RuleConfigError(f"{where} 必须是数字，当前：{raw!r}")
-    if v <= 0:
-        raise RuleConfigError(f"{where} 必须大于 0，当前：{v}")
-    return v
+def _no_dup_mapping(loader, node, deep=False):
+    seen: dict = {}
+    for key_node, _ in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        line = key_node.start_mark.line + 1
+        if key in seen:
+            raise ValueError(f"config.yaml 第 {line} 行键 {key!r} 重复（首次出现在第 {seen[key]} 行）")
+        seen[key] = line
+    return loader.construct_mapping(node, deep=deep)
 
 
-def _param(where: str, key: str, raw):
-    typ, minimum = PARAM_SPECS[key]
-    try:
-        v = typ(raw)
-    except (TypeError, ValueError):
-        raise RuleConfigError(f"{where}.{key} 必须是 {typ.__name__}，当前：{raw!r}")
-    if v < minimum:
-        raise RuleConfigError(f"{where}.{key} 不能小于 {minimum}，当前：{v}")
-    return v
+_NoDupLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _no_dup_mapping)
 
 
-def parse_rule_config(data: Optional[dict]) -> dict:
-    """把 yaml 解析结果转成 RuleAgent 要的阈值 dict：{sensor_type: th}。"""
-    section = (data or {}).get("rule_engine")
-    if not isinstance(section, dict):
-        raise RuleConfigError("config.yaml 缺少 rule_engine 段")
-
-    params = section.get("params")
-    if not isinstance(params, dict):
-        raise RuleConfigError("rule_engine 缺少 params 段")
-    for key in PARAM_SPECS:
-        if key not in params:
-            raise RuleConfigError(f"rule_engine.params 缺少 {key}")
-
-    thresholds = section.get("thresholds")
-    if not isinstance(thresholds, dict) or not thresholds:
-        raise RuleConfigError("rule_engine 缺少 thresholds 段或为空")
-
-    out: dict = {}
-    for sensor, raw in thresholds.items():
-        where = f"rule_engine.thresholds.{sensor}"
-        if not isinstance(raw, dict):
-            raise RuleConfigError(f"{where} 必须是映射")
-
-        th: dict = {}
-        for key in BAND_KEYS:
-            if key not in raw:
-                raise RuleConfigError(f"{where} 缺少 {key}")
-            th[key] = _band(f"{where}.{key}", raw[key])
-        for key in SCALAR_KEYS:
-            if key not in raw:
-                raise RuleConfigError(f"{where} 缺少 {key}")
-            th[key] = _positive(f"{where}.{key}", raw[key])
-
-        (plo, phi), (flo, fhi), (wlo, whi) = th["physical"], th["fault"], th["warn"]
-        if not (plo <= flo < wlo < whi < fhi <= phi):
-            raise RuleConfigError(
-                f"{where} 区间嵌套错误：要求 物理下限 ≤ 故障下限 < 告警下限 < 告警上限 < 故障上限 ≤ 物理上限，"
-                f"当前 physical={th['physical']} fault={th['fault']} warn={th['warn']}"
-            )
-
-        # 全局参数先铺底，传感器级同名字段覆盖
-        for key in PARAM_SPECS:
-            th[key] = _param("rule_engine.params", key, params[key])
-            if key in raw:
-                th[key] = _param(where, key, raw[key])
-
-        out[sensor] = th
-    return out
+# ---------- 真实 config.yaml ----------
+def test_real_config_loads_temperature_and_humidity():
+    th = load_rule_thresholds()
+    assert {"temperature", "humidity"} <= set(th)
 
 
-def load_rule_thresholds(path: Union[str, Path, None] = None) -> dict:
-    p = Path(path) if path else CONFIG_PATH
-    if not p.exists():
-        raise RuleConfigError(f"找不到规则配置文件：{p}")
-    try:
-        with p.open(encoding="utf-8") as f:
-            data = yaml.safe_load(f)
-    except yaml.YAMLError as e:
-        raise RuleConfigError(f"{p} 不是合法 YAML：{e}") from e
-    return parse_rule_config(data)
+def test_real_config_bands_are_float_tuples():
+    """旧 evidence 按 '(10.0, 35.0)' 打印，读出来是 list 或 int 都会让旧断言失败。"""
+    for sensor, th in load_rule_thresholds().items():
+        for key in ("physical", "warn", "fault"):
+            assert isinstance(th[key], tuple), f"{sensor}.{key}"
+            assert all(isinstance(x, float) for x in th[key]), f"{sensor}.{key}"
+
+
+def test_warn_band_matches_legacy_sensor_thresholds():
+    """config.yaml 注释承诺的一致性测试就是这一条。
+
+    config.py 的 sensor_thresholds（旧面板在用）和规则告警带是同一组数，两边必须一致。
+    如果 .env 里设了 SENSOR_THRESHOLDS 导致失败，说明两处真的已经分叉，这正是本测试要拦的。
+    """
+    legacy = get_config().sensor_thresholds
+    for sensor, th in load_rule_thresholds().items():
+        assert sensor in legacy, f"{sensor} 在 rule_engine 有配置，但 config.py 的 sensor_thresholds 里没有"
+        expected = (float(legacy[sensor]["min"]), float(legacy[sensor]["max"]))
+        assert th["warn"] == expected, f"{sensor}：yaml warn={th['warn']}，config.py={expected}"
+
+
+def test_real_config_has_no_duplicate_keys():
+    """病根守卫：复制粘贴后忘删旧段。重复键会被 PyYAML 静默吞掉，只能靠这条测试抓。"""
+    yaml.load(CONFIG_PATH.read_text(encoding="utf-8"), Loader=_NoDupLoader)
+
+
+def test_yaml_comment_references_point_to_real_tests():
+    """反空头支票：config.yaml 注释里引用的 test_rule_config.py::xxx，必须真的存在于本文件。"""
+    text = CONFIG_PATH.read_text(encoding="utf-8")
+    refs = re.findall(r"test_rule_config\.py::(\w+)", text)
+    assert refs, "config.yaml 注释应注明一致性由哪条测试锁定"
+    missing = [r for r in refs if not callable(globals().get(r))]
+    assert not missing, f"config.yaml 注释引用了不存在的测试：{missing}"
+
+
+# ---------- 校验逻辑 ----------
+def test_missing_section_raises():
+    with pytest.raises(RuleConfigError, match="rule_engine"):
+        parse_rule_config({"data_source": "serial"})
+
+
+def test_bad_nesting_raises():
+    data = _valid()
+    data["rule_engine"]["thresholds"]["temperature"]["warn"] = [10, 50]  # 告警上限 > 故障上限
+    with pytest.raises(RuleConfigError, match="嵌套"):
+        parse_rule_config(data)
+
+
+def test_missing_key_raises_with_name():
+    data = _valid()
+    del data["rule_engine"]["thresholds"]["temperature"]["jump"]
+    with pytest.raises(RuleConfigError, match="jump"):
+        parse_rule_config(data)
+
+
+def test_missing_file_raises(tmp_path):
+    with pytest.raises(RuleConfigError, match="找不到"):
+        load_rule_thresholds(tmp_path / "nope.yaml")
+
+
+def test_params_merged_and_sensor_override():
+    data = _valid()
+    data["rule_engine"]["thresholds"]["temperature"]["sustained_frames"] = 20
+    th = parse_rule_config(data)["temperature"]
+    assert th["trend_points"] == 5          # 继承全局参数
+    assert th["sustained_frames"] == 20     # 传感器级覆盖
+    assert th["warn"] == (10.0, 35.0)       # int 转成了 float tuplepython -m pytest tests/agents/test_rule_config.py -q

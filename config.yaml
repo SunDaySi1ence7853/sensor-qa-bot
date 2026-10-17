@@ -1,37 +1,33 @@
 # ---------- 第八阶段:数据源配置 ----------
-data_source: serial      # 板子到手了，切到 serial 接真实数据
-serial_port:  COM9       # ← 改成你设备管理器里的实际 COM 号！(Linux/Mac 是 /dev/ttyUSB0)
-serial_baudrate: 9600
-serial_timeout: 1.0
-# ---------- 第八阶段:数据源配置 ----------
+# 注意：config.py 当前只读环境变量 SENSOR_DATA_SOURCE 等，不读本段（已记入 Q3 风险表，非任务3范围）
 data_source: serial      # 板子到手了，切到 serial 接真实数据
 serial_port:  COM9       # ← 改成你设备管理器里的实际 COM 号！(Linux/Mac 是 /dev/ttyUSB0)
 serial_baudrate: 9600
 serial_timeout: 1.0
 
-# ---------- 第三阶段任务3：规则引擎（唯一真相源，由 src/agents/rule_config.py 加载并校验）----------
+# ---------- 第三阶段任务3：规则引擎（唯一真相源，由 src/agents/rule_config.py 加载并强校验）----------
 rule_engine:
   # 全局参数。帧数按采样间隔 30s 折算
   params:
     trend_points: 5             # 趋势类规则看末尾几帧
-    flatline_frames: 40         # 冻结判定帧数（≈20 分钟）。必须远大于测试里全绿 fixture 的帧数（最多 10 帧），否则全绿会误判冻结、路由走错
+    flatline_frames: 40         # 冻结判定帧数（≈20 分钟）。必须远大于全绿 fixture 帧数（最多 10），否则 lite 路由会误判
     flatline_epsilon: 0.0       # 冻结极差上限。DHT22 正常有 ±0.1 级噪声，0.0 表示纹丝不动
-    oscillation_min_jumps: 3    # 反复跳变次数下限。单个尖峰是一上一下 2 次，所以设 3 次以上才算反复跳变
+    oscillation_min_jumps: 3    # 单个尖峰是一上一下 2 次，≥3 次才算反复跳变
     sustained_frames: 10        # 持续越限帧数（≈5 分钟）
 
-  # 各传感器阈值。区间必须满足：物理下限 ≤ 故障下限 < 告警下限 < 告警上限 < 故障上限 ≤ 物理上限
+  # 区间要求：物理下限 ≤ 故障下限 < 告警下限 < 告警上限 < 故障上限 ≤ 物理上限
   thresholds:
     temperature:
-      physical: [-40.0, 80.0]   # DHT22 测温量程（手册），超出说明读数在物理上不可能
-      warn: [10.0, 35.0]        # 与 config.py 的 sensor_thresholds 保持一致，有一致性测试锁定
+      physical: [-40.0, 80.0]   # DHT22 测温量程（手册）
+      warn: [10.0, 35.0]        # 与 config.py sensor_thresholds 一致，由 tests/agents/test_rule_config.py::test_warn_band_matches_legacy_sensor_thresholds 锁定
       fault: [0.0, 45.0]
-      jump: 5.0                 # 相邻帧跳变阈值（手册：>5°C 指示接线松动或传感器故障）
+      jump: 5.0                 # 手册：相邻跳变 >5°C 指示接线松动或传感器故障
       trend_rise: 2.0
       trend_fall: 2.0
-      approach_margin: 2.0      # 距告警线多近算"即将越限"
+      approach_margin: 2.0
     humidity:
       physical: [0.0, 100.0]
-      warn: [20.0, 80.0]
+      warn: [20.0, 80.0]        # 同上，由 test_rule_config.py::test_warn_band_matches_legacy_sensor_thresholds 锁定
       fault: [10.0, 90.0]
       jump: 15.0
       trend_rise: 10.0
