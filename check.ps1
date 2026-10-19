@@ -1,6 +1,7 @@
 ﻿# check.ps1 —— push 前三道闸门：pytest 全绿 → demo 不崩 → 场景全对
 # 规则：全文件只允许一个成功出口，且必须在最末尾。改本文件时整块替换，不要追加。
 
+
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $env:PYTHONIOENCODING = "utf-8"
 Set-Location $PSScriptRoot
