@@ -257,6 +257,84 @@ ruff check src/ tests/
 
 ---
 
+## 动态路由与降级策略
+
+管线不是固定顺序执行。`collector` 和 `rule` 之后各有一个条件路由
+（`route_after_collector` / `route_after_rule`），supervisor 只负责最后汇总状态。
+
+```
+正常：collector → rule → ai_analysis → report → supervisor
+补采：collector →[degraded]→ re_collect → rule → …
+全绿：collector → rule →[triggered_count == 0]→ ai_analysis_lite → report → supervisor
+失败：collector →[无产出 / offline]→ supervisor
+```
+
+每次运行经过的节点都会记在 `routing_path` 里，可以事后复盘走了哪条路。
+演示：`python -m src.agents.demo_dynamic`
+
+### 1. 数据降级 → 补采一次
+
+- **触发**：collector 产出的 `data_quality == "degraded"`（例如帧间有时间空洞）。
+- **动作**：进入 `re_collect`，重新调用一次 collector。**只补采一次**，
+  无论补采结果是 ok 还是仍为 degraded，都直接进入 `rule`，不会循环重试。
+- **补采失败怎么办**：不中断管线，也不假装成功。
+  - 在 `errors` 里记一条 `{"agent": "re_collect", "reason": "补采失败：…"}`；
+  - `state["collector"]` 保留**首次采集的产物**，后续规则在这份数据上继续判断；
+  - `routing_path` 中照常出现 `re_collect`。
+- **为什么只补一次**：降级通常是偶发丢帧，补一次能覆盖大多数情况；
+  无限重试会让诊断卡住，而且对真正离线的传感器没有意义。
+
+### 2. 规则全绿 → AI 简化（`ai_analysis_lite`）
+
+- **触发**：规则引擎 `triggered_count == 0`，即所有规则都是 normal。
+- **动作**：跳过 RAG 检索，**不调用 LLM**，直接产出固定结论
+  （"规则全部正常…"、"维持当前运行状态…"），`references` 为空。
+- **为什么**：没有异常就没有需要解释的根因。此时调用 LLM 只会增加成本和延迟，
+  还可能让模型凭空编出问题。
+
+### 3. 采集失败 → 直达 supervisor
+
+- **触发**：collector 抛 `AgentFailure`（没有产出），或 `data_quality == "offline"`。
+- **动作**：跳过 rule / ai / report，直接进入 supervisor，状态判为 `failed`。
+- **为什么**：如果继续往下走，rule、ai、report 会依次因"上游未产出"各记一条 skip 错误，
+  `errors` 里出现三条假错误，掩盖真正的根因。直达 supervisor 后，
+  错误列表里只有 collector 那一条真实原因。
+
+### 4. 规则失败 → 跳到 report 记录
+
+- **触发**：rule 节点抛 `AgentFailure`（`state["rule"]` 为空）。
+- **动作**：跳过 AI，直接进入 report。report 发现缺少 AI 结果，记一条 skip，
+  最终状态为 `partial`。
+
+### 最终状态判定（`node_supervisor`）
+
+| 状态       | 条件                                                         |
+| ---------- | ------------------------------------------------------------ |
+| `complete` | 产出了报告                                                   |
+| `failed`   | 没有报告，且 collector 抛异常失败，或 `data_quality == "offline"` |
+| `partial`  | 没有报告，其他原因（rule / ai / report 某环失败）            |
+
+注：补采失败但后续成功出报告时，状态仍为 `complete`，补采失败记录保留在 `errors` 中。
+
+### 测试对应
+
+| 路由                             | 测试                                                         |
+| -------------------------------- | ------------------------------------------------------------ |
+| degraded → 补采                  | `test_dynamic_routing.py::test_degraded_triggers_re_collect_node` |
+| 补采确实再调了一次 reader        | `test_dynamic_routing.py::test_re_collect_reader_called_twice` |
+| 补采后正常出报告                 | `test_dynamic_routing.py::test_degraded_path_status_complete` |
+| 补采失败：记错误、保留首采、继续 | `test_dynamic_routing.py::test_re_collect_failure_keeps_first_collect`（新增） |
+| 全绿 → lite                      | `test_dynamic_routing.py::test_all_green_routes_to_ai_lite`  |
+| 全绿时 LLM 零调用                | `test_dynamic_routing.py::test_all_green_no_llm_call`        |
+| 全绿出完整报告                   | `test_dynamic_routing.py::test_all_green_report_complete`、`test_all_green_ai_lite_recommendation_present` |
+| 全绿规则夹具不误报               | `test_rules_extended.py::test_all_green_fixtures_stay_untriggered` |
+| collector 失败直达 supervisor    | `test_dynamic_routing.py::test_collector_fail_goes_directly_to_supervisor`、`test_supervisor.py::test_collector_failure_routes_directly_to_supervisor` |
+| collector 失败无下游假错误       | `test_dynamic_routing.py::test_collector_fail_no_downstream_errors` |
+| collector 失败判 failed          | `test_supervisor.py::test_collector_failure_sets_status_failed` |
+| offline 判定（采集层）           | `test_collector.py::test_empty_buffer_is_offline`、`test_stale_data_is_offline_but_still_returned` |
+| offline → supervisor 判 failed   | `test_dynamic_routing.py::test_offline_routes_to_supervisor_failed`（新增） |
+| demo 路径A 四段真实发生          | `test_demo_dynamic.py`                                       |
+
 ## ⚠️ 已知限制
 
 ### 知识库覆盖度
