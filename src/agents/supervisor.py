@@ -159,13 +159,32 @@ def build_pipeline(cfg: PipelineConfig):
             }
 
     def node_supervisor(state: DiagnosisState) -> dict:
-        """汇总管线状态。动态路由在 collector/rule 之后的条件边；这里只判 status。"""
+        """汇总管线状态。动态路由在 collector/rule 之后的条件边；这里只判 status。
+
+        failed 的两种来源：
+          - collector 抛 AgentFailure（errors 里有 collector 记录）
+          - collector 正常返回但 data_quality=offline（collector 按设计不记 error，
+            由这里补记，否则会落到 partial 且 errors 为空）
+        """
         errors = state.get("errors") or []
         if state.get("report") is not None:
             return {"status": "complete", "routing_path": ["supervisor"]}
+
         collector_failed = any(e["agent"] == "collector" for e in errors)
         if collector_failed:
             return {"status": "failed", "routing_path": ["supervisor"]}
+
+        collector = state.get("collector")
+        if collector is not None and collector.get("data_quality") == "offline":
+            return {
+                "status": "failed",
+                "errors": [{
+                    "agent": "collector",
+                    "reason": "data_quality=offline：窗口内无有效读数或最新数据过旧，未进入诊断",
+                }],
+                "routing_path": ["supervisor"],
+            }
+
         return {"status": "partial", "routing_path": ["supervisor"]}
 
     # ── 路由函数 ─────────────────────────────────────────────────────────

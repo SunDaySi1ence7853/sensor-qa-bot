@@ -22,4 +22,5 @@ vectorstore/
 
 # --- IDE ---
 .vscode/
-.idea/
+.idea/demo_output.txt
+demo_output.txt

@@ -5,7 +5,9 @@
   - collector offline/None → 直接 supervisor，rule/ai/report 未运行
 """
 import json
+from datetime import timedelta
 
+from src.agents.base import AgentFailure
 import pytest
 
 from src.agents.fakes import FAKE_MANUAL, FIXED_NOW, FakeLLM, FakeRetriever, make_readings
@@ -135,7 +137,76 @@ def test_collector_fail_no_downstream_errors():
     assert "rule" not in agent_names
     assert "ai_analysis" not in agent_names
     assert "report" not in agent_names
+# ── collector offline → 直接 supervisor，判 failed ─────────────────────
 
+@pytest.mark.parametrize(
+    "case, rows, clock_shift",
+    [
+        ("空 buffer", [], timedelta(0)),
+        # 数据仍在 1h 窗口内，但最新一帧离 now 超过 stale 阈值（3×30s）
+        ("数据过旧", make_readings([23.6] * 10), timedelta(minutes=10)),
+    ],
+)
+def test_offline_routes_to_supervisor_failed(case, rows, clock_shift):
+    now = FIXED_NOW + clock_shift
+
+    # 前置：构造的数据必须真的判成 offline，否则测的是空气
+    probe = CollectorAgent(
+        reader=lambda s: rows, clock=lambda: now, interval_sec=30.0,
+    ).run({"sensor_type": "temperature", "window_hours": 1.0})
+    assert probe["data_quality"] == "offline", f"{case}: 前置数据没判成 offline"
+
+    cfg = PipelineConfig(
+        llm=FakeLLM(GOOD_LLM_RESP),
+        retriever=FakeRetriever(FAKE_MANUAL),
+        reader=lambda s: rows,
+        clock=lambda: now,
+    )
+    result = build_pipeline(cfg).invoke(_initial_state("temperature", 1.0))
+
+    # 路由：直达 supervisor，下游一个都没跑
+    for node in ("re_collect", "rule", "ai_analysis", "ai_analysis_lite", "report"):
+        assert node not in result["routing_path"], f"{case}: {node} 不该运行"
+    assert "supervisor" in result["routing_path"]
+
+    # 状态：failed，且 errors 里说清楚原因（修复前是 partial + 空列表）
+    assert result["status"] == "failed"
+    assert any("offline" in e["reason"] for e in result["errors"])
+
+
+# ── 补采失败 → 保留首次采集结果，管线继续 ──────────────────────────────
+
+class _ReCollectFailReader:
+    """第一次返回 degraded 数据，第二次（补采）抛 AgentFailure。"""
+    def __init__(self):
+        self.calls = 0
+
+    def __call__(self, sensor_type: str):
+        self.calls += 1
+        if self.calls == 1:
+            return make_gapped_readings([23.6] * 10)
+        raise AgentFailure("collector", "模拟补采时数据源不可用")
+
+
+def test_re_collect_failure_keeps_first_collect():
+    first = CollectorAgent(
+        reader=lambda s: make_gapped_readings([23.6] * 10),
+        clock=lambda: FIXED_NOW,
+        interval_sec=30.0,
+    ).run({"sensor_type": "temperature", "window_hours": 1.0})
+    assert first["data_quality"] == "degraded"
+
+    reader = _ReCollectFailReader()
+    result = _run(_make_pipeline(reader=reader))
+
+    assert reader.calls == 2                          # 确实补采了一次
+    assert "re_collect" in result["routing_path"]
+    assert result["collector"] == first               # 首次产物没被覆盖
+    assert any(
+        e["agent"] == "re_collect" and "补采失败" in e["reason"]
+        for e in result["errors"]
+    )
+    assert "rule" in result["routing_path"]           # 补采失败不中断，继续往下走
 
 # ── routing_path 完整性 ──────────────────────────────────────────────────
 
