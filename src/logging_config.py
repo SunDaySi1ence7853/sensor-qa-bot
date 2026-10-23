@@ -27,6 +27,25 @@ _FILE_FORMAT = (
 _INITIALIZED = False
 
 
+class _CurrentStderrHandler(logging.StreamHandler):
+    """每次 emit 时取当下的 sys.stderr，不在初始化时固定绑定。
+
+    CliRunner / pytest 等会临时替换 sys.stderr 并在结束后关闭；
+    若初始化时固定绑定，之后所有日志都会写往已关闭的流。
+    """
+
+    def __init__(self) -> None:
+        super().__init__(sys.stderr)
+
+    @property
+    def stream(self):
+        return sys.stderr
+
+    @stream.setter
+    def stream(self, value) -> None:
+        pass  # 忽略基类 __init__ / setStream 的赋值
+
+
 def setup_logging(debug: bool = False, log_dir: Path | None = None) -> None:
     """
     初始化日志系统。
@@ -53,7 +72,7 @@ def setup_logging(debug: bool = False, log_dir: Path | None = None) -> None:
     root_logger.handlers.clear()
 
     # ---------- 终端 handler ----------
-    console_handler = logging.StreamHandler(sys.stderr)
+    console_handler = _CurrentStderrHandler()
     console_handler.setLevel(logging.DEBUG if debug else logging.INFO)
     console_handler.setFormatter(logging.Formatter(_CONSOLE_FORMAT))
     console_handler.set_name("console")

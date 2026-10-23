@@ -9,6 +9,7 @@ pytest 公共 fixture。
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 import threading
@@ -99,6 +100,28 @@ def clean_env(monkeypatch):
     monkeypatch.setattr(dotenv, "load_dotenv", lambda *a, **kw: False)
 
     return monkeypatch
+
+
+_APP_LOG_HANDLERS = {"console", "app_file", "error_file"}
+
+
+@pytest.fixture(autouse=True)
+def _isolate_app_logging(monkeypatch, tmp_path):
+    """日志系统隔离：每个测试都从未初始化状态开始，且不写真实 logs/。
+
+    只清理 setup_logging 挂的具名 handler，不碰 pytest 的 LogCaptureHandler。
+    """
+    import src.logging_config as lc
+
+    monkeypatch.setattr(lc, "_INITIALIZED", False)
+    monkeypatch.setattr(lc, "LOG_DIR", tmp_path / "logs")
+    root = logging.getLogger()
+    saved_level = root.level
+    yield
+    for h in [h for h in root.handlers if h.get_name() in _APP_LOG_HANDLERS]:
+        root.removeHandler(h)
+        h.close()  # Windows 下不关闭的话 tmp_path 里的 .log 文件会被占用
+    root.setLevel(saved_level)
 
 
 @pytest.fixture
