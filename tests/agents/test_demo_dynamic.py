@@ -2,7 +2,9 @@
 
 背景：2d5ecfe 修 reader 时误删了路径A 的 _print_result，被验收点名两次。
 """
-from src.agents.demo_dynamic import _find_rule_output, _run_path_a, run_path_a_degraded_then_warn
+from src.agents.demo_dynamic import (
+    _find_rule_output, _run_path_a, _run_path_c, run_path_a_degraded_then_warn,
+)
 
 
 def test_path_a_four_stages_actually_happen():
@@ -26,3 +28,14 @@ def test_path_a_prints_all_four_stages(capsys):
     out = capsys.readouterr().out
     for needle in ("路径A", "帧间有洞", "含补采", "规则告警", "完整 RAG + LLM", "路由路径"):
         assert needle in out, f"路径A 打印缺少 {needle!r}\n---\n{out}"
+
+
+def test_demo_path_c_offline_facts():
+    result, stats = _run_path_c()
+    assert result["collector"]["data_quality"] == "offline"
+    assert result["routing_path"] == ["collector", "supervisor"]
+    assert result["status"] == "failed"
+    assert any(e["agent"] == "collector" for e in result["errors"])
+    assert stats["reader_calls"] == 1
+    assert stats["llm"].calls == []
+    assert stats["retriever"].queries == []

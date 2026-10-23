@@ -1,9 +1,10 @@
 """
 路径A：数据质量降级 → 补采 → 规则有告警 → 完整 AI 分析
 路径B：数据质量正常 → 规则全绿 → AI 简化（跳过 RAG）
+路径C：数据离线（offline）→ 直达 supervisor → failed，rule/AI/report 均不运行
 每段打印都由运行事实推出（reader 调用次数、规则触发数、LLM/RAG 调用次数），
 不手写结论：哪一段没发生，打印就如实显示，测试也会红。
-两条路径共用 _print_result，禁止单独手打结果行。
+三条路径共用 _print_result，禁止单独手打结果行。
 """
 from __future__ import annotations
 
@@ -34,7 +35,12 @@ def _find_rule_output(result: dict):
 
 
 def _ai_mode(result: dict) -> str:
-    return "lite（跳过 RAG，LLM 零调用）" if "ai_analysis_lite" in result["routing_path"] else "完整 RAG + LLM"
+    path = result["routing_path"]
+    if "ai_analysis_lite" in path:
+        return "lite（跳过 RAG，LLM 零调用）"
+    if "ai_analysis" in path:
+        return "完整 RAG + LLM"
+    return "未运行"
 
 
 def _print_result(label: str, result: dict, stats: dict | None = None) -> None:
@@ -42,6 +48,11 @@ def _print_result(label: str, result: dict, stats: dict | None = None) -> None:
     print(f"\n{SEP}")
     print(f"【{label}】")
     print(f"  路由路径   : {' → '.join(result['routing_path'])}")
+
+    # 数据质量由 collector 产出推出，不手写
+    collector = result.get("collector")
+    if collector is not None:
+        print(f"  数据质量   : {collector['data_quality']}（有效读数 {len(collector['readings'])} 帧）")
 
     if "first_batch" in stats:
         print(f"  首采       : {stats['first_batch']}")
@@ -51,7 +62,8 @@ def _print_result(label: str, result: dict, stats: dict | None = None) -> None:
 
     rules = _find_rule_output(result)
     if rules is None:
-        print("  规则       : （state 中未找到规则输出）")
+        ran = any(n.startswith("rule") for n in result["routing_path"])
+        print(f"  规则       : {'（state 中未找到规则输出）' if ran else '未运行'}")
     else:
         fired = [f"{i['rule_id']}={i['level']}" for i in rules["items"] if i["level"] != "normal"]
         verdict = "规则告警" if fired else "规则全绿"
@@ -123,7 +135,41 @@ def run_path_b_ok_all_green():
     return result
 
 
+def _run_path_c() -> tuple[dict, dict]:
+    """路径C 本体：buffer 为空 → offline → 直达 supervisor。"""
+    stats = {
+        "reader_calls": 0,
+        "first_batch": "空 buffer（传感器无数据 → 应判 offline）",
+        "llm": FakeLLM(_LLM_RESP),
+        "retriever": FakeRetriever(FAKE_MANUAL),
+    }
+
+    def empty_reader(sensor_type: str):
+        stats["reader_calls"] += 1
+        return []
+
+    cfg = PipelineConfig(
+        llm=stats["llm"],
+        retriever=stats["retriever"],
+        reader=empty_reader,
+        clock=lambda: FIXED_NOW,
+    )
+    result = build_pipeline(cfg).invoke(_initial_state("temperature", 1.0))
+    return result, stats
+
+
+def run_path_c_offline():
+    """路径C：传感器离线 → 直达 supervisor → failed，下游零调用。"""
+    result, stats = _run_path_c()
+    _print_result("路径C：offline → 直达 supervisor → failed", result, stats)
+    assert result["status"] == "failed", "离线路径应判 failed"
+    assert stats["llm"].calls == [] and stats["retriever"].queries == [], "离线路径不应调 LLM/RAG"
+    print("  ✓ 确认：离线路径 LLM 0 次、RAG 0 次，状态 failed")
+    return result
+
+
 if __name__ == "__main__":
     print("动态路由演示")
     run_path_a_degraded_then_warn()
     run_path_b_ok_all_green()
+    run_path_c_offline()
