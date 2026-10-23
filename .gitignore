@@ -19,8 +19,9 @@ env/
 logs/
 vectorstore/
 .env
+demo_output.txt
+evidence*.txt
+full_run.txt
 
 # --- IDE ---
 .vscode/
-.idea/demo_output.txt
-demo_output.txt

@@ -157,14 +157,36 @@ sensor-qa-bot/
 │   ├── agent.py            # LangGraph 核心控制流
 │   ├── config.py           # 全局配置加载
 │   ├── datasource.py       # 串口与模拟数据源封装 (含降级)
-│   └── tools/
-│       └── sensor_tools.py # 采样线程、Buffer 历史查询工具
+│   ├── logging_config.py   # 日志配置
+│   ├── cli.py              # 命令行入口
+│   ├── rag_chat.py         # RAG 问答
+│   ├── embeddings.py       # 文本向量化
+│   ├── vectorstore.py      # FAISS 向量库
+│   ├── tools/
+│   │   └── sensor_tools.py # 采样线程、Buffer 历史查询工具
+│   └── agents/             # 多 Agent 巡检管线（动态路由）
+│       ├── state.py        # 管线状态定义
+│       ├── schemas.py      # 数据结构
+│       ├── base.py         # Agent 基类
+│       ├── collector.py    # 采集，判定 offline / degraded
+│       ├── rule_agent.py   # 规则检查
+│       ├── rule_config.py  # 规则阈值配置
+│       ├── ai_agent.py     # LLM 分析（全绿时走 lite）
+│       ├── report_agent.py # 报告生成
+│       ├── supervisor.py   # 汇总最终状态
+│       ├── scenarios.py    # 演示场景
+│       ├── fakes.py        # 测试/演示用假数据源
+│       └── demo_dynamic.py # 动态路由演示脚本
+├── knowledge_base/         # 传感器知识库 (*.md)
 ├── tests/
-│   └── test_*.py           # pytest 测试集
-├── config.yaml            # 硬件与模型配置
+│   ├── conftest.py         # 公共 fixture，含 sensor_tools 全局状态隔离
+│   ├── agents/             # 多 Agent 管线测试
+│   └── test_*.py           # 其余模块测试
+├── config.yaml             # 硬件与模型配置
 ├── streamlit_app.py        # Web 交互界面入口
 ├── pyproject.toml          # 项目与依赖定义
-└── requirements.txt        # pip 依赖清单
+├── requirements.txt        # pip 依赖清单
+└── LICENSE                 # MIT
 ```
 
 ---
@@ -234,6 +256,15 @@ ruff check src/ tests/
 | 总命中率 | 85% (Top-K=5) |
 | 平均检索耗时 | 0.026s |
 
+### 单元测试
+
+| 范围 | 结果 |
+|------|------|
+| 全量 `pytest` | 210 passed |
+| 多 Agent 管线 `tests/agents` | 112 passed |
+
+采样线程、hub、buffer、失败计数都是模块级全局状态。`tests/conftest.py` 中的 autouse fixture 在每个测试前后重置这些状态，避免测试之间互相串扰（`tests/test_isolation.py` 用于验证这一点）。
+
 ---
 
 ## 🔬 模拟数据合理性说明
@@ -270,7 +301,7 @@ ruff check src/ tests/
 ```
 
 每次运行经过的节点都会记在 `routing_path` 里，可以事后复盘走了哪条路。
-演示：`python -m src.agents.demo_dynamic`
+演示：`python -m src.agents.demo_dynamic`（路径 A 补采 / B 全绿 / C 离线）
 
 ### 1. 数据降级 → 补采一次
 
@@ -323,7 +354,7 @@ ruff check src/ tests/
 | degraded → 补采                  | `test_dynamic_routing.py::test_degraded_triggers_re_collect_node` |
 | 补采确实再调了一次 reader        | `test_dynamic_routing.py::test_re_collect_reader_called_twice` |
 | 补采后正常出报告                 | `test_dynamic_routing.py::test_degraded_path_status_complete` |
-| 补采失败：记错误、保留首采、继续 | `test_dynamic_routing.py::test_re_collect_failure_keeps_first_collect`（新增） |
+| 补采失败：记错误、保留首采、继续 | `test_dynamic_routing.py::test_re_collect_failure_keeps_first_collect` |
 | 全绿 → lite                      | `test_dynamic_routing.py::test_all_green_routes_to_ai_lite`  |
 | 全绿时 LLM 零调用                | `test_dynamic_routing.py::test_all_green_no_llm_call`        |
 | 全绿出完整报告                   | `test_dynamic_routing.py::test_all_green_report_complete`、`test_all_green_ai_lite_recommendation_present` |
@@ -332,8 +363,9 @@ ruff check src/ tests/
 | collector 失败无下游假错误       | `test_dynamic_routing.py::test_collector_fail_no_downstream_errors` |
 | collector 失败判 failed          | `test_supervisor.py::test_collector_failure_sets_status_failed` |
 | offline 判定（采集层）           | `test_collector.py::test_empty_buffer_is_offline`、`test_stale_data_is_offline_but_still_returned` |
-| offline → supervisor 判 failed   | `test_dynamic_routing.py::test_offline_routes_to_supervisor_failed`（新增） |
-| demo 路径A 四段真实发生          | `test_demo_dynamic.py`                                       |
+| offline → supervisor 判 failed（空 buffer / 数据过旧） | `test_dynamic_routing.py::test_offline_routes_to_supervisor_failed`（参数化 2 例） |
+| demo 路径A 四段真实发生          | `test_demo_dynamic.py::test_path_a_four_stages_actually_happen` |
+| demo 路径C 离线真实发生          | `test_demo_dynamic.py::test_demo_path_c_offline_facts`        |
 
 ## ⚠️ 已知限制
 
@@ -345,6 +377,11 @@ ruff check src/ tests/
 ```bash
 sensor-qa-build --force
 ```
+
+### 补采结果为 offline 时未拦截
+
+首采 degraded、补采时 buffer 已清空的情况下，当前会用空读数继续走 rule → report，
+可能被判为 complete。尚未处理，计划在后续迭代由 re_collect 后增加路由判断。
 
 ---
 
