@@ -178,14 +178,18 @@ sensor-qa-bot/
 │       ├── fakes.py        # 测试/演示用假数据源
 │       └── demo_dynamic.py # 动态路由演示脚本
 ├── knowledge_base/         # 传感器知识库 (*.md)
+├── docs/
+│   └── migration-langchain-community.md  # 依赖迁移评估（迁不迁、为什么）
 ├── tests/
-│   ├── conftest.py         # 公共 fixture，含 sensor_tools 全局状态隔离
+│   ├── conftest.py         # 公共 fixture，含 sensor_tools / 日志全局状态隔离
 │   ├── agents/             # 多 Agent 管线测试
 │   └── test_*.py           # 其余模块测试
 ├── config.yaml             # 硬件与模型配置
-├── streamlit_app.py        # Web 交互界面入口
+├── streamlit_app.py        # Web 交互界面入口（问答 + 实时面板）
+├── streamlit_diagnosis.py  # 诊断管线路由可视化（不需要 API Key）
 ├── pyproject.toml          # 项目与依赖定义
-├── requirements.txt        # pip 依赖清单
+├── requirements.txt        # pip 依赖清单（完整，含 RAG / ML 栈）
+├── requirements-minimal.txt # 最小依赖（只跑诊断管线与 tests/agents）
 └── LICENSE                 # MIT
 ```
 
@@ -204,6 +208,41 @@ sensor-qa-bot/
 ```bash
 pip install -r requirements.txt
 ```
+
+### 2. 诊断管线 · 路由可视化（`streamlit_diagnosis.py`）
+
+把三条路由画在页面上：数据质量 → 走了哪条路 → 谁被调用 → 最终状态。
+
+```bash
+streamlit run streamlit_diagnosis.py
+```
+
+- 不调 LLM、不读向量库、不需要 API Key，断网也能演示；
+- 页面上的每个数字都从管线返回值推出（不是手写结论）；
+- 页内数据是构造数据，页面已明确标注，不冒充真实用户数据；
+- 三条路径的渲染结果由 `tests/test_streamlit_diagnosis.py` 用 Streamlit 官方 `AppTest` 锁定。
+
+### 3. 问答 + 实时监控面板（`streamlit_app.py`）
+
+```bash
+streamlit run streamlit_app.py
+```
+
+需要 `.env` 里的 `DEEPSEEK_API_KEY` 与已构建的向量库。
+
+### 最小安装路径（不装 ML 栈）
+
+只想跑诊断管线 / 三条路径 demo / `tests/agents`，不需要 torch 与 sentence-transformers：
+
+```bash
+pip install -r requirements-minimal.txt
+python -m src.agents.demo_dynamic          # 三条路径，exit 0
+pytest tests/agents                        # 112 passed
+```
+
+`langchain-core` 只提供 `tool` 装饰器与 Runnable 抽象，不含 torch。采样线程、collector、规则引擎、报告生成、LangGraph 路由都不依赖 RAG 层；`src/tools/__init__.py` 与 `src/tools/sensor_tools.py` 里的 `load_vectorstore` 已改为函数内延迟导入，并由 `tests/test_dependency_isolation.py` 用子进程守住这条线（防止有人再把 vectorstore 挪回顶层）。
+
+未装 ML 栈时，`tests/test_rag_chat.py` 与 `tests/test_vectorstore.py` 会在收集阶段报 ModuleNotFoundError —— 这是预期行为，RAG 层本来就需要完整依赖。
 
 ---
 
@@ -260,7 +299,7 @@ ruff check src/ tests/
 
 | 范围 | 结果 |
 |------|------|
-| 全量 `pytest` | 210 passed |
+| 全量 `pytest` | 214 passed |
 | 多 Agent 管线 `tests/agents` | 112 passed |
 
 采样线程、hub、buffer、失败计数都是模块级全局状态。`tests/conftest.py` 中的 autouse fixture 在每个测试前后重置这些状态，避免测试之间互相串扰（`tests/test_isolation.py` 用于验证这一点）。
@@ -392,6 +431,7 @@ sensor-qa-build --force
 | `embeddings.py` | `_normalize_base_url()` 规范化 URL | 用户 `BASE_URL` 末尾带 `/v1` 时避免 `/v1/v1` 导致 404 |
 | `rag_chat.py` | `_extract_usage()` 降级返回全零 | 模型不返回 `usage_metadata` 时不崩溃 |
 | `vectorstore.py` | 反序列化风险注释 | 提醒后续维护者不要接受外部向量库文件（pickle RCE 风险） |
+| `tools/__init__.py`、`tools/sensor_tools.py` | `load_vectorstore` 改为函数内延迟导入 | 纯采样/诊断路径不再被动拉起 RAG 全家桶（torch、faiss、langchain_huggingface）；干净机器不装 ML 栈也能跑 demo 与 `tests/agents`，由 `tests/test_dependency_isolation.py` 守护 |
 | `cli.py` | `_preflight_check()` | 缺 API Key / 非法配置时立即中文报错 |
 
 ---
