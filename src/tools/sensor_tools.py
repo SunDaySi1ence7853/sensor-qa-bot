@@ -22,7 +22,11 @@ from src.datasource import (
     FakeSerial, SensorReading, SerialSource, SimulatedSource,
     get_datasource, resolve_source_type,
 )
-from src.vectorstore import load_vectorstore
+
+# 注意：`src.vectorstore`（→ embeddings → langchain_huggingface / faiss）只被 search_manual 用到，
+# 不能在这里顶层 import：采样线程、collector、tests/agents 都只需要本模块，
+# 顶层 import 会把「不装 ML 栈就跑不起来」焊死在纯采样路径上。
+# 同理查 src/tools/__init__.py。
 
 logger = logging.getLogger(__name__)
 
@@ -287,6 +291,8 @@ def check_threshold(sensor_type: str, value: float) -> dict:
 def search_manual(query: str) -> str:
     """检索传感器知识库手册，获取传感器规格、工作电压等文档信息。遇到硬件规格问答时使用。"""
     try:
+        from src.vectorstore import load_vectorstore  # 延迟导入：只有真正检索时才需要 RAG 依赖
+
         vectorstore = load_vectorstore()
         docs = vectorstore.similarity_search(query, k=get_config().retrieve_top_k)
         if not docs: return "未检索到相关手册内容"

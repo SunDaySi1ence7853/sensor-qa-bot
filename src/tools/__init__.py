@@ -6,13 +6,18 @@
 
 import math
 import random
-from datetime import datetime, timedelta
-from typing import List, Optional
+from datetime import datetime
+from typing import List
 from pydantic import BaseModel, Field
 from langchain_core.tools import tool
 
 from src.config import get_config
-from src.vectorstore import load_vectorstore
+
+# 注意：不要把 `from src.vectorstore import load_vectorstore` 放在这里。
+# 本包被 `import src.tools` 时就会执行，而其中的 sensor_tools（纯采样）会被
+# collector / tests/agents 直接使用；顶层 import vectorstore 等于把 RAG 全家桶
+# （embeddings → langchain_huggingface → faiss/torch）焊在采样路径上，
+# 干净机器不装 ML 栈连 pytest 都收集不起来。改为在 search_manual 内延迟导入。
 
 
 # ==================== 数据模型 ====================
@@ -143,6 +148,8 @@ def search_manual(query: str) -> str:
         str: 检索到的相关文档内容片段
     """
     try:
+        from src.vectorstore import load_vectorstore  # 延迟导入：只有真正检索时才需要 RAG 依赖
+
         vectorstore = load_vectorstore()
         docs = vectorstore.similarity_search(query, k=get_config().retrieve_top_k)
         if not docs:

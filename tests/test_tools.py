@@ -1,7 +1,7 @@
 # tests/test_tools.py
 """测试传感器工具集"""
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock
 from langchain_core.documents import Document
 
 from src.tools.sensor_tools import (
@@ -54,9 +54,12 @@ def test_check_threshold_unconfigured():
 
 # ==================== 补齐 search_manual 测试 ====================
 
-@patch("src.tools.sensor_tools.load_vectorstore")
-def test_search_manual_normal(mock_load_vs):
+def test_search_manual_normal(monkeypatch):
     """正常：成功检索到手册内容"""
+    # search_manual 内部延迟 import vectorstore，所以 patch 的是源头模块的属性；
+    # 干净机器（未装 ML 栈）上这条用例自动 skip，而不是让整个文件收集失败。
+    vs_mod = pytest.importorskip("src.vectorstore")
+
     # 构造假的 Document 返回值
     mock_vs = MagicMock()
     mock_docs = [
@@ -64,10 +67,10 @@ def test_search_manual_normal(mock_load_vs):
         Document(page_content="工作电压 2.4V-5.5V", metadata={"source": "sht30_manual.pdf"})
     ]
     mock_vs.similarity_search.return_value = mock_docs
-    mock_load_vs.return_value = mock_vs
-    
+    monkeypatch.setattr(vs_mod, "load_vectorstore", lambda: mock_vs)
+
     result = search_manual.invoke({"query": "SHT30 精度是多少"})
-    
+
     # 验证返回了包含来源和内容的字符串
     assert isinstance(result, str)
     assert "SHT30 湿度精度为 ±2%RH" in result
@@ -75,14 +78,19 @@ def test_search_manual_normal(mock_load_vs):
     # 验证确实调用了模拟的检索方法
     mock_vs.similarity_search.assert_called_once()
 
-@patch("src.tools.sensor_tools.load_vectorstore")
-def test_search_manual_exception(mock_load_vs):
+
+def test_search_manual_exception(monkeypatch):
     """异常：向量库加载失败或检索报错"""
+    vs_mod = pytest.importorskip("src.vectorstore")
+
     # 模拟抛出异常（比如向量库文件不存在）
-    mock_load_vs.side_effect = Exception("向量库文件未找到")
-    
+    def boom():
+        raise Exception("向量库文件未找到")
+
+    monkeypatch.setattr(vs_mod, "load_vectorstore", boom)
+
     result = search_manual.invoke({"query": "随便查"})
-    
+
     # 验证工具捕获了异常，并返回了可读的降级错误提示，而不是直接崩溃
     assert isinstance(result, str)
     assert "检索手册失败" in result

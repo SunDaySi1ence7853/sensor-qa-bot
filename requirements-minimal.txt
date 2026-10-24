@@ -1,0 +1,18 @@
+# 最小安装路径：不装 ML 栈也能跑诊断管线
+#
+# 可跑：python -m src.agents.demo_dynamic（三条路径）、python -m src.agents.scenarios、
+#       pytest tests/agents（112 条）
+# 不可跑：RAG 问答（sensor-qa / rag_chat / vectorstore）与 tests/test_rag_chat.py、
+#       tests/test_vectorstore.py、tests/test_embeddings.py、tests/test_llm.py
+#
+# 说明：langchain-core 只提供 BaseModel / tool 装饰器与 Runnable 抽象，不含 torch；
+# 采样线程、collector、规则引擎、报告生成、LangGraph 路由都只依赖下面这些包。
+langchain-core>=0.2.0
+langgraph>=0.2.0
+pydantic>=2.0.0
+PyYAML>=6.0
+python-dotenv>=1.0.0
+pyserial>=3.5
+
+# 跑测试时加：
+# pytest>=8.0

@@ -20,25 +20,32 @@ os.environ["SENSOR_DATA_SOURCE"] = "simulated"  # 测试固定模拟源，不随
 
 @pytest.fixture(autouse=True)
 def _clear_caches():
-    """每个测试前后清空所有 lru_cache 的模块级缓存。"""
+    """每个测试前后清空所有 lru_cache 的模块级缓存。
+
+    embeddings 只在**已经导入过**时清理：不主动 import，避免给只跑 tests/agents
+    的干净机器（未装 torch / langchain_huggingface）强加 RAG 依赖 —— 那会让
+    整轮 pytest 在收集阶段就崩掉，而不是只跳过 RAG 相关用例。
+    """
     from src import config as config_mod
-    from src import embeddings as embeddings_mod
 
-    for mod in (config_mod, embeddings_mod):
-        for name in dir(mod):
-            obj = getattr(mod, name)
-            cache_clear = getattr(obj, "cache_clear", None)
-            if callable(cache_clear):
-                cache_clear()
+    def mods():
+        found = [config_mod]
+        embeddings_mod = sys.modules.get("src.embeddings")
+        if embeddings_mod is not None:
+            found.append(embeddings_mod)
+        return found
 
+    def clear_all():
+        for mod in mods():
+            for name in dir(mod):
+                obj = getattr(mod, name)
+                cache_clear = getattr(obj, "cache_clear", None)
+                if callable(cache_clear):
+                    cache_clear()
+
+    clear_all()
     yield
-
-    for mod in (config_mod, embeddings_mod):
-        for name in dir(mod):
-            obj = getattr(mod, name)
-            cache_clear = getattr(obj, "cache_clear", None)
-            if callable(cache_clear):
-                cache_clear()
+    clear_all()
 
 _SENSOR_TOOLS = "src.tools.sensor_tools"
 
