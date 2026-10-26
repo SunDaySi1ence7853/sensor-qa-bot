@@ -176,7 +176,8 @@ sensor-qa-bot/
 │       ├── supervisor.py   # 汇总最终状态
 │       ├── scenarios.py    # 演示场景
 │       ├── fakes.py        # 测试/演示用假数据源
-│       └── demo_dynamic.py # 动态路由演示脚本
+│       ├── demo_dynamic.py # 动态路由演示脚本
+│       └── live_diagnose.py # 实测模式：用真实 buffer 跑一次诊断 + 报告导出
 ├── knowledge_base/         # 传感器知识库 (*.md)
 ├── docs/
 │   └── migration-langchain-community.md  # 依赖迁移评估（迁不迁、为什么）
@@ -209,7 +210,7 @@ sensor-qa-bot/
 pip install -r requirements.txt
 ```
 
-### 2. 诊断管线 · 路由可视化（`streamlit_diagnosis.py`）
+### 2. 诊断管线 · 路由可视化 + 一键诊断（`streamlit_diagnosis.py`）
 
 把三条路由画在页面上：数据质量 → 走了哪条路 → 谁被调用 → 最终状态。
 
@@ -217,10 +218,17 @@ pip install -r requirements.txt
 streamlit run streamlit_diagnosis.py
 ```
 
-- 不调 LLM、不读向量库、不需要 API Key，断网也能演示；
-- 页面上的每个数字都从管线返回值推出（不是手写结论）；
-- 页内数据是构造数据，页面已明确标注，不冒充真实用户数据；
-- 三条路径的渲染结果由 `tests/test_streamlit_diagnosis.py` 用 Streamlit 官方 `AppTest` 锁定。
+两个模式：
+
+| 模式 | 数据来源 | 是否需要 API Key |
+|------|----------|------------------|
+| 演示 | `src.agents.demo_dynamic` 的三条构造路径（A 补采 / B 全绿 / C 离线） | 不需要，断网可跑 |
+| 实测 | 当前采样 buffer（`_history_buffer`），时间用真实 now | 不开 AI 时不需要；规则触发且勾选"调用 AI"时才需要 |
+
+- 实测模式走的是**同一套管线**（`src.agents.live_diagnose`），不是另写一条捷径；
+- 规则全绿直接出 lite 结论（零模型调用）；传感器离线直接判 failed；规则触发但没开 AI 时状态是 `partial` 并写明原因，不静默编结论；
+- 结果可一键导出 **Markdown 报告**（含规则明细、证据链、错误列表）与 **原始 state JSON**；
+- 页面数字全部来自管线返回值（不是手写结论），并由 `tests/test_streamlit_diagnosis.py` 用 Streamlit 官方 `AppTest` 锁定。
 
 ### 3. 问答 + 实时监控面板（`streamlit_app.py`）
 
@@ -299,7 +307,7 @@ ruff check src/ tests/
 
 | 范围 | 结果 |
 |------|------|
-| 全量 `pytest` | 214 passed |
+| 全量 `pytest` | 223 passed |
 | 多 Agent 管线 `tests/agents` | 112 passed |
 
 采样线程、hub、buffer、失败计数都是模块级全局状态。`tests/conftest.py` 中的 autouse fixture 在每个测试前后重置这些状态，避免测试之间互相串扰（`tests/test_isolation.py` 用于验证这一点）。
