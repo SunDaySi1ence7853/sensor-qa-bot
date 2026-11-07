@@ -1,0 +1,51 @@
+name: ci
+
+# 目的：证明"不装 torch / faiss / sentence-transformers 的干净机器"也能跑通
+# 诊断管线（demo + 场景 + tests/agents）——这是 README「最小安装路径」的自动化验证。
+#
+# 注意：这里**故意**不装 requirements.txt（那是完整 RAG/ML 栈）。
+# 需要全量 223 条测试时请在本机跑 .\check.ps1。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  minimal-stack:
+    name: windows-latest · 最小依赖（无 ML 栈）
+    runs-on: windows-latest
+
+    env:
+      PYTHONIOENCODING: utf-8
+      PYTHONUTF8: "1"
+
+    steps:
+      - name: 检出仓库
+        uses: actions/checkout@v4
+
+      - name: 安装 Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements-minimal.txt
+
+      - name: 安装最小依赖（不装 ML 栈）
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-minimal.txt pytest
+
+      - name: 断言 ML 栈确实没装
+        run: |
+          python -c "import importlib.util as u, sys; mods=['torch','faiss','sentence_transformers','langchain_huggingface','langchain_community','langchain_openai']; found=[m for m in mods if u.find_spec(m)]; print('found:', found); sys.exit(1 if found else 0)"
+
+      - name: pytest · 管线 + 隔离守卫（不含 RAG 层用例）
+        run: python -m pytest tests/agents tests/test_dependency_isolation.py tests/test_isolation.py -q
+
+      - name: demo · 三条路径
+        run: python -m src.agents.demo_dynamic
+
+      - name: 场景验收 · 6/6
+        run: python -m src.agents.scenarios

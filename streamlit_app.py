@@ -1,3 +1,10 @@
+"""问答 + 实时监控面板入口（RAG 完整形态）。
+
+⚠️ 这个入口需要 `.env` 里的 `DEEPSEEK_API_KEY` 和已构建的向量库。
+**5 分钟演示 / 评委现场请用 `streamlit_diagnosis.py`**（不需要 Key、断网可跑）：
+    streamlit run streamlit_diagnosis.py
+"""
+
 import streamlit as st
 import pandas as pd
 import json

@@ -13,6 +13,15 @@ $VenvPython = Join-Path $PSScriptRoot "venv\Scripts\python.exe"
 $Python = if (Test-Path $VenvPython) { $VenvPython } else { "python" }
 Write-Host "使用解释器：$Python" -ForegroundColor DarkGray
 
+# pytest 属于开发依赖，不在 requirements.txt 里。缺了要说人话，
+# 而不是让闸门 1 抛一串 "No module named pytest"。
+& $Python -c "import pytest" 2>$null
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "❌ 当前解释器没有 pytest。请先执行：" -ForegroundColor Red
+    Write-Host "   $Python -m pip install -r requirements-dev.txt" -ForegroundColor Yellow
+    exit 1
+}
+
 function Invoke-Gate {
     param([string]$Name, [string[]]$Cmd)
     Write-Host ""

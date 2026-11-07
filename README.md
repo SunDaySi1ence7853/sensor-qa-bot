@@ -5,6 +5,27 @@
 
 ---
 
+## 🚪 先看这里：两个入口，别选错
+
+仓库里有两个 Streamlit 入口，用途完全不同：
+
+| 文件 | 给谁用 | 需要 API Key | 启动 |
+|------|--------|--------------|------|
+| **`streamlit_diagnosis.py`** | **5 分钟演示 / 评委**：三条路由、一键诊断、报告导出 | ❌ 不需要（断网可跑） | `streamlit run streamlit_diagnosis.py` |
+| `streamlit_app.py` | 问答体验 + 实时监控面板（RAG 完整形态） | ✅ 需要 `.env` 里的 `DEEPSEEK_API_KEY` 与已构建向量库 | `streamlit run streamlit_app.py` |
+
+> 评委现场只需要第一个。第二个没有 Key、没有向量库时会在页面上直接报配置错误，那不是 bug，是它本来就需要外部依赖。
+
+命令行等价入口（不开网页也能演示）：
+
+```bash
+python -m src.agents.demo_dynamic      # 三条路径：A 补采 / B 全绿 / C 离线
+python -m src.agents.scenarios         # 6 个异常场景的规则验收（6/6）
+.\check.ps1                            # 三道闸门：pytest 全量 + demo + 场景
+```
+
+---
+
 ## ✨ 功能特性
 
 - 📚 **本地知识库检索**：基于 FAISS 向量库，纯本地运行、隐私可控
@@ -29,11 +50,19 @@ pip install git+https://github.com/SunDaySi1ence7853/sensor-qa-bot.git
 ```bash
 git clone https://github.com/SunDaySi1ence7853/sensor-qa-bot.git
 cd sensor-qa-bot
+
+# 方式 A：pip 安装（会装包本体，但不会装 pytest）
 pip install -e .
 
-# 若要参与开发，安装可选依赖：
-pip install -e ".[dev]"
+# 方式 B：直接按依赖清单装（不安装包本体，脚本一样能跑）
+pip install -r requirements.txt
+
+# 想在本地跑验收（pytest / check.ps1）时，再加这一行：
+pip install -r requirements-dev.txt
 ```
+
+> ⚠️ 只装 `requirements.txt` 是**跑不了 pytest 的**（pytest 属于开发依赖）。
+> 验收请务必补上 `requirements-dev.txt`，否则 `.\check.ps1` 会在第一道闸门报 `No module named pytest`。
 
 安装完成后，命令行会新增两个可执行命令：
 

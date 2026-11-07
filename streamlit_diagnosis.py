@@ -1,8 +1,11 @@
-"""传感器诊断管线 · 路由可视化 + 一键诊断（Streamlit）。
+"""传感器诊断管线 · 路由可视化 + 一键诊断（Streamlit）—— 评委演示从这里进。
 
 两个模式：
 - 演示：跑 `src.agents.demo_dynamic` 的三条构造路径（A 补采 / B 全绿 / C 离线）；
 - 实测：读当前采样 buffer 跑一次真实诊断（collector → rule → [AI] → report → supervisor）。
+
+不需要 API Key、不需要向量库、断网可跑。另一个入口 `streamlit_app.py` 是 RAG 问答的
+完整形态（需要 Key 与向量库），不是演示入口。
 
 页面上的每个数字都从管线返回值推出，不手写结论；诊断结果可导出 Markdown / JSON。
 
