@@ -89,13 +89,23 @@ py -3.11 -m venv venv                     # 没有 py 就用 python -m venv venv
 
 # 本机实测结果（2026-11-07）
 
-> 下面这几行是真实执行输出，不是预期值。复现时数字应当一致。
+> 下面这些是真实执行输出，不是预期值。实测对象：commit `c9ec42e`，Windows 11 + Python 3.11.9。
 
-```
-clone:      exit 0，HEAD = <commit>，env=False vectorstore=False venv=False
-install:    requirements.txt 全量安装 exit 0
-闸门 1/3:   <n> passed
-闸门 2/3:   exit 0，三条路径
-闸门 3/3:   场景通过 6/6
-演示页:     HTTP 200
-```
+| 步骤 | 实际输出 |
+|---|---|
+| clone | `exit 0`；`env=False vectorstore=False venv=False`（三个私有物都没有） |
+| 安装 | `requirements.txt` exit 0；`requirements-dev.txt` exit 0；共 116 个包 |
+| 闸门 1/3 | `223 passed, 1 warning in 7.27s` |
+| 闸门 2/3 | exit code **0**，三条路径完整输出（A/B/C，44 行） |
+| 闸门 3/3 | `场景通过 6/6` |
+| 演示页 | `streamlit_diagnosis.py` → **HTTP 200**（7863 字节） |
+| 解释器定位 | `.\check.ps1` 自动使用 `...\sqb-fresh2\venv\Scripts\python.exe`（未激活 venv 也能跑） |
+| GitHub Actions | run #1，`windows-latest`，不装 ML 栈，结论 **success**（约 54 秒） |
+
+**这一轮演练抓到的真问题**：`requirements.txt` 里没有 pytest（它属于开发依赖）。第一次按 README 装完直接跑 `.\check.ps1`，第一道闸门就报 `No module named pytest`。已修：
+
+- README 把"运行依赖 / 开发依赖"分开写清，并明确警告只装前者跑不了验收；
+- `check.ps1` 增加前置检查：缺 pytest 时输出"请先执行 `pip install -r requirements-dev.txt`"，而不是抛一串 ModuleNotFoundError。
+
+**这次证明的是**：干净机器上 clone → 装 → 三闸门 → 演示页，全链路通。
+**这次没有证明的**：真实传感器、真实用户、跨操作系统（只测了 Windows + 一个 Linux 容器思路的 CI）。
