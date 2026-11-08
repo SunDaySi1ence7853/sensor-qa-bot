@@ -1,9 +1,12 @@
-# check.ps1 —— push 前三道闸门：pytest 全绿 → demo 不崩 → 场景全对
+﻿# check.ps1 —— push 前三道闸门：pytest 全绿 → demo 不崩 → 场景全对
 # 规则：全文件只允许一个成功出口，且必须在最末尾。改本文件时整块替换，不要追加。
 #
+# 编码：本文件必须保存为 UTF-8 **带 BOM**。
+# Windows PowerShell 5.1 读无 BOM 的 UTF-8 会按 ANSI/GBK 解码，
+# 中文注释行末的标点可能把手后的换行吃掉，下一行代码会整行变成注释里的一部分
+# （本文件就因为这个坑，guard 那行曾经根本没执行过，却一直"看起来正常"）。
+#
 # 解释器：优先用项目自带 venv（不依赖终端是否激活），找不到再退回 PATH 里的 python。
-# 这样"换台机器 / 新开一个没激活的终端"不会因为 python 找不到而假红（退出码 9009）。
-
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $env:PYTHONIOENCODING = "utf-8"
@@ -14,8 +17,8 @@ $Python = if (Test-Path $VenvPython) { $VenvPython } else { "python" }
 Write-Host "使用解释器：$Python" -ForegroundColor DarkGray
 
 # pytest 属于开发依赖，不在 requirements.txt 里。缺了要说人话，
-# 而不是让闸门 1 抛一串 "No module named pytest"。
-& $Python -c "import pytest" 2>$null
+# 而不是让闸门 1 抛一串 No module named pytest。
+& $Python -c "import pytest"
 if ($LASTEXITCODE -ne 0) {
     Write-Host "❌ 当前解释器没有 pytest。请先执行：" -ForegroundColor Red
     Write-Host "   $Python -m pip install -r requirements-dev.txt" -ForegroundColor Yellow

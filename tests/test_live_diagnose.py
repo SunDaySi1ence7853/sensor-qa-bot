@@ -92,3 +92,22 @@ def test_json_export_round_trips():
     assert payload["state"]["status"] == "failed"
     assert payload["calls"]["llm"] == 0
     assert payload["meta"]["source"] == "test"
+
+
+def test_markdown_export_carries_skip_reason():
+    """partial 时导出的报告必须把"为什么没出结论"写进去，而不是只留一个状态。"""
+    result, stats = diagnose_live(
+        "temperature", 1.0,
+        reader=lambda s: make_readings([23.0, 23.5, 24.0, 24.8, 25.5]),
+        clock=lambda: FIXED_NOW,
+    )
+    assert result["status"] == "partial"
+
+    md = to_markdown(result, stats, sensor_type="temperature", window_hours=1.0)
+
+    assert "partial" in md
+    assert "错误与跳过原因" in md
+    assert "ai_analysis" in md, md
+
+    payload = json.loads(to_json(result, stats, source="test"))
+    assert payload["state"]["errors"], "JSON 里也必须保留错误/跳过原因"

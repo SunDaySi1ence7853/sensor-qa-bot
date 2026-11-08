@@ -49,7 +49,7 @@ py -3.11 -m venv venv                     # 没有 py 就用 python -m venv venv
 
 ```
 使用解释器：...\sqb-fresh\venv\Scripts\python.exe
-===== 闸门 1/3 pytest 全量 =====  223 passed
+===== 闸门 1/3 pytest 全量 =====  224 passed
 ===== 闸门 2/3 动态路由 demo =====  路径C ... failed / exit 0
 ===== 闸门 3/3 场景验收 =====     场景通过 6/6
 ✅ 三道闸门全部通过，可以 push
@@ -71,7 +71,7 @@ py -3.11 -m venv venv                     # 没有 py 就用 python -m venv venv
 |--------|----------|
 | clone 后私有物 | `.env` / `vectorstore` / `venv` 均为 False |
 | 安装 | `pip install -r requirements.txt` 退出码 0 |
-| 闸门 1 | 223 passed，0 failed |
+| 闸门 1 | 224 passed，0 failed |
 | 闸门 2 | exit code 0，输出含三条路径（A/B/C） |
 | 闸门 3 | 场景通过 6/6 |
 | 演示页 | 三条路径可切换、指标与终端一致；实测模式能跑出 complete 或 failed |
@@ -95,7 +95,7 @@ py -3.11 -m venv venv                     # 没有 py 就用 python -m venv venv
 |---|---|
 | clone | `exit 0`；`env=False vectorstore=False venv=False`（三个私有物都没有） |
 | 安装 | `requirements.txt` exit 0；`requirements-dev.txt` exit 0；共 116 个包 |
-| 闸门 1/3 | `223 passed, 1 warning in 7.27s` |
+| 闸门 1/3 | `223 passed, 1 warning in 7.27s`（当日值；11-08 新增 1 条导出用例后为 224，见下） |
 | 闸门 2/3 | exit code **0**，三条路径完整输出（A/B/C，44 行） |
 | 闸门 3/3 | `场景通过 6/6` |
 | 演示页 | `streamlit_diagnosis.py` → **HTTP 200**（7863 字节） |

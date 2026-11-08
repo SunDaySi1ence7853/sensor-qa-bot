@@ -336,7 +336,7 @@ ruff check src/ tests/
 
 | 范围 | 结果 |
 |------|------|
-| 全量 `pytest` | 223 passed |
+| 全量 `pytest` | 224 passed |
 | 多 Agent 管线 `tests/agents` | 112 passed |
 
 采样线程、hub、buffer、失败计数都是模块级全局状态。`tests/conftest.py` 中的 autouse fixture 在每个测试前后重置这些状态，避免测试之间互相串扰（`tests/test_isolation.py` 用于验证这一点）。

@@ -106,8 +106,17 @@ def test_live_mode_with_recent_green_data_goes_lite():
 
 
 def test_export_buttons_present():
-    """演示模式应给出下载入口（报告 + 原始 state）。"""
+    """演示模式应给出下载入口（报告 + 原始 state）。
+
+    只依赖 `AppTest.download_button`；老版本 streamlit 的 AppTest 没有这个属性，
+    这时**跳过**而不是判红 —— 导出的正确性由 test_live_diagnose 里
+    to_markdown / to_json 的用例直接覆盖，不靠 UI 断言兜底。
+    """
     at = _run()
-    labels = [b.label for b in at.download_button]
+    download = getattr(at, "download_button", None)
+    if download is None:
+        pytest.skip("当前 streamlit 的 AppTest 不支持 download_button；导出逻辑由 test_live_diagnose 覆盖")
+
+    labels = [b.label for b in download]
     assert any("Markdown" in x for x in labels), labels
     assert any("JSON" in x for x in labels), labels
